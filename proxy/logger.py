@@ -7,9 +7,9 @@ class Logger:
 
         self.run_date = datetime.datetime.now().strftime("%Y_%m_%d")
 
-        self.__log(init_msg, True)
+        self.__log(f"\n\n{datetime.datetime.now().strftime('%H:%M:%S')}_{init_msg}\n\n", True, False)
 
-    def __log(self, data, output_to_stdout=False):
+    def __log(self, data, output_to_stdout=False, time=True):
         """
         print the data to standard output and saves to log file of the day with the time
         :param data: str - data to output
@@ -20,7 +20,7 @@ class Logger:
             print(data)
 
         with open(f"{self.run_date}_{self.base_name}.log", "a") as f:
-            f.write(f"{datetime.datetime.now().strftime('%H:%M:%S')}_{data}\n")
+            f.write(f"{datetime.datetime.now().strftime('%H:%M:%S')+'_' if time else ''}{data}\n")
 
     def debug(self, data):
         self.__log(f"DEBUG: {data}", True)

@@ -10,7 +10,7 @@ class Proxy:
         self.web_servers = []
         self.__base_buffer = 4096
 
-        self.logger = Logger("proxy_log", "proxy server started")
+        self.logger = Logger("proxy", "proxy server started")
 
         self.__setup_socket()
 
@@ -56,6 +56,7 @@ class Proxy:
 
     def handle_client_request(self, client, address):
         # need different handler for http and https
+        self.logger.info(f"connection from client {address[0]}", True)
         try:
             request = client.recv(self.__base_buffer)
         except:
@@ -87,6 +88,8 @@ class Proxy:
             webserver_sock.connect((server.decode(), int(port)))
         except:
             self.logger.warning(f"could not connect to webserver {server.decode()}")
+            self.logger.debug(f"{connect_request}")
+            
             client_sock.close()
 
         # reporting to client that connection has been Established
@@ -137,15 +140,28 @@ class Proxy:
         """
 
         # initializing socket to webserver
-        web_server_data = http_request.split(b"\r\n")[1].split(b":")[1:]
+        host_line = [data for data in http_request.split(b"\r\n") if b"Host:" in data]
+
+        if len(host_line) < 1:
+            self.logger.warning(f"bad http request by client {client_address[0]}")
+            #self.logger.debug(f"{http_request}")
+            client_sock.close()
+            return
+
+        host_line = host_line[0]
+        
+        # web_server_data = http_request.split(b"\r\n")[1].split(b":")[1:]
+        web_server_data = host_line.split(b":")[1:]
         web_server, port = web_server_data[0].strip(), 80 if len(web_server_data) == 1 else web_server_data[1]
 
         webserver_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.logger.debug(f"{http_request}")
 
         try:
             webserver_sock.connect((web_server.decode(), int(port)))
         except:
             self.logger.warning(f"could not connect to webserver {web_server.decode()}")
+            #self.logger.debug(f"{http_request}")
             client_sock.close()
             return
 
@@ -156,7 +172,14 @@ class Proxy:
         http_request_for_webserver = http_request[:http_request.find(b" ") + 1] + http_request[http_request.find(b"/",
                                                                                                                  http_request.find(
                                                                                                                      b"//") + 2):]
-        webserver_sock.sendall(http_request_for_webserver)
+        try:
+            webserver_sock.sendall(http_request_for_webserver)
+        except:
+            self.logger.warning(f"connection to webserver {web_server.decode()} has been closed")
+            #self.logger.debug(f"{http_request}")
+            client_sock.close()
+            webserver_sock.close()
+            return
 
         data = b''
         data_fragment = b'1'
@@ -171,7 +194,13 @@ class Proxy:
 
             data = data + data_fragment
         else:
-            client_sock.sendall(data)
+            try:
+                client_sock.sendall(data)
+            except:
+                self.logger.warning(f"connection to client {client_address[0]} has been closed")
+                #self.logger.debug(f"{http_request}")
+                client_sock.close()
+                webserver_sock.close()
 
         self.logger.info(f"closed connection with {client_address[0]} and server {web_server.decode()}")
         self.web_servers.remove(web_server.decode())
