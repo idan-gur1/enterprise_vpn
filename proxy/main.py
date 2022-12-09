@@ -30,8 +30,8 @@ def handle_btn():
 
 root = Tk()
 root.geometry("500x500")
-button = Button(root, command=handle_btn)
-resized_image = Image.open("btn.png").resize((300, 300), Image.ANTIALIAS)
+button = Button(root, command=handle_btn, relief=FLAT)
+resized_image = Image.open("btn.png").resize((300, 300))
 new_image = ImageTk.PhotoImage(resized_image)
 button.config(image=new_image)
 button.place(relx=0.5, rely=0.5, anchor=CENTER)  # Displaying the button
