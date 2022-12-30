@@ -3,8 +3,6 @@ import time
 from select import select
 from ssl import SSLContext, PROTOCOL_TLS_SERVER
 
-# SERVER_GUI = False
-
 
 class Server:
     def __init__(self, ip, port):
@@ -126,7 +124,7 @@ class Server:
 
                     if not success:
                         self.__close_client(sock)
-                        self._handle_data(sock, "client_disconnected")
+                        self._handle_data(sock, b"client_disconnected")
                     else:
                         self._handle_data(sock, msg)
                     if not self.run:
@@ -186,13 +184,13 @@ class Server:
         try:
             msg_size = sock.recv(8)
         except:
-            return "recv error", False
+            return b"recv error", False
         if not msg_size:
-            return "msg length error", False
+            return b"msg length error", False
         try:
             msg_size = int(msg_size)
         except:  # not an integer
-            return "msg length error", False
+            return b"msg length error", False
 
         msg = b''
         # this is a fail-safe -> if the recv not giving the msg in one time
@@ -200,12 +198,12 @@ class Server:
             try:
                 msg_fragment = sock.recv(msg_size - len(msg))
             except:
-                return "recv error", False
+                return b"recv error", False
             if not msg_fragment:
-                return "msg data is none", False
+                return b"msg data is none", False
             msg = msg + msg_fragment
 
-        msg = msg.decode(errors="ignore")
+        # msg = msg.decode(errors="ignore")
 
         return msg, True
 

@@ -5,4 +5,11 @@
     <orderEntry type="jdk" jdkName="Python 3.11" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
+  <component name="PyNamespacePackagesService">
+    <option name="namespacePackageFolders">
+      <list>
+        <option value="$MODULE_DIR$/managment_and_authentication" />
+      </list>
+    </option>
+  </component>
 </module>
