@@ -2,10 +2,12 @@ from _thread import start_new_thread
 import scapy.all as scapy
 import pcap
 import socket
-
-IFACE = r'\Device\NPF_{A265853A-3A2D-464F-931D-5742291298D9}'
+# TODO get data from auth server
+IFACE = r'\Device\NPF_{AE7C22F9-20C6-4682-B63F-DA27D3341CAD}'
 SERVER_ADDR = "0.0.0.0", 44444
-DEBUG = False
+main_auth_addr = "0.0.0.0", 54321  # TODO change this
+SERVICE_SECRET_CODE = b"code123-123"
+DEBUG = True
 
 clients = {}
 
@@ -111,24 +113,26 @@ def client_handler(client_sock, pcap_handler):
     if not ok:
         print(f"socket error with ip status")
         return
-    if ip_status != "ok":
-        print(f"ip error with {client_virtual_mac}")
+    if ip_status != b"ok":
+        print(f"ip error with {client_virtual_mac}, status={ip_status}")
         return
 
-    clients[int(client_virtual_mac.replace(":", ""), 16).to_bytes(6, "big")] = client_sock
-
+    raw_mac = int(client_virtual_mac.replace(":", ""), 16).to_bytes(6, "big")
+    clients[raw_mac] = client_sock
+    print(clients)
     while True:
         data, ok = recv(client_sock)
+        print(f"got packet data - {data}")
         if not ok:
             print(f"socket error with recv data")
             break
         if not data:
             print(f"disconnected")
             break
-
         pcap_handler.sendpacket(data)
 
     client_sock.close()
+    del clients[raw_mac]
     # TODO do dhcp release stuff
 
 
@@ -137,13 +141,21 @@ def sniffer_handler(pcap_handler):
         mac = packet[:6]
         if mac == b'\xff\xff\xff\xff\xff\xff':
             for client in clients.values():
+                print(f"data to all - {packet}")
                 send_sock(client, packet)
         elif (c_sock := clients.get(mac, "x")) != "x":
+            print(f"data to {mac} - {packet}")
             send_sock(c_sock, packet)
 
 
 def main():
-    pc = pcap.pcap(pcap.pcap(name=IFACE, promisc=True, immediate=True))
+    socket_to_main_auth = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    socket_to_main_auth.connect(main_auth_addr)
+    data = SERVICE_SECRET_CODE + b"outer_user_manager"
+    socket_to_main_auth.send(str(len(data)).zfill(8).encode() + data)
+
+
+    pc = pcap.pcap(name=IFACE, promisc=True, immediate=True)
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind(SERVER_ADDR)
@@ -153,6 +165,7 @@ def main():
 
     while True:
         client, client_addr = server_socket.accept()
+        print(f"new connection from {client_addr}")
         start_new_thread(client_handler, (client, pc))
 
     pc.close()

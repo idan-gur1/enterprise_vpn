@@ -26,12 +26,13 @@ class Server:
         :return: None
         """
 
-        ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
-        ssl_context.load_cert_chain('ssl_cert/cert.pem', 'ssl_cert/key.key')
-
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-        self.__server_socket = ssl_context.wrap_socket(server, server_side=True)
+        # ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
+        # ssl_context.load_cert_chain('ssl_cert/cert.pem', 'ssl_cert/key.key')
+        #
+        # server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #
+        # self.__server_socket = ssl_context.wrap_socket(server, server_side=True)
+        self.__server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__server_socket.bind((self.__ip, self.__port))
 
     def start(self):

@@ -4,9 +4,9 @@ import socket
 import pcap
 import wmi
 
-VIRTUAL_IFACE = r'\Device\NPF_{A265853A-3A2D-464F-931D-5742291298D9}'  # TODO fill in the class
-VIRTUAL_IFACE_SETTING_ID = r'{A265853A-3A2D-464F-931D-5742291298D9}'  # TODO fill in the class
-SERVER_ADDR = "0.0.0.0", 44444
+VIRTUAL_IFACE = r'\Device\NPF_{D84E9EF7-4BA2-473D-BF58-87164D8A7EC3}'  # TODO fill in the class
+VIRTUAL_IFACE_SETTING_ID = r'{D84E9EF7-4BA2-473D-BF58-87164D8A7EC3}'  # TODO fill in the class
+SERVER_ADDR = "172.16.125.103", 44444
 
 
 def send_sock(sock, data):
@@ -45,8 +45,12 @@ def recv(sock):
 
 
 def handle_read(client_sock, pcap_handler, raw_mac_address):
+    raw_mac_address = raw_mac_address[1]
+    print(f"raw mac: {raw_mac_address}")
     for _, packet in pcap_handler:
+        print(packet[6:12])
         if packet[6:12] == raw_mac_address:
+            print(f"sending packet to server {packet}")
             send_sock(client_sock, packet)
 
 
@@ -86,25 +90,30 @@ def main():
         send_sock(client_sock, "bad")
         print("cant set ip")
         return
-    send_sock(client_sock, "ok")
+    send_sock(client_sock, "ok".encode())
 
-    pc = pcap.pcap(pcap.pcap(name=VIRTUAL_IFACE, immediate=True))
+    pc = pcap.pcap(name=VIRTUAL_IFACE, promisc=True, immediate=True)
 
     start_new_thread(handle_read, (client_sock, pc, raw_mac))
 
     while True:
         data, ok = recv(client_sock)
+        print(f"got data from server {data}")
         if not ok:
             print("socket error")
             break
         if not data:
             print("server error")
             break
-        pc.sendpacket(data)
+        try:
+            print(pc.sendpacket(data))
+        except Exception as e:
+            print(e)
 
     pc.close()
     client_sock.close()
 
+
 # TODO change this to run in class - cant run at home
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    main()

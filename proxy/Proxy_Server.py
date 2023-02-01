@@ -1,7 +1,7 @@
 import socket
 from _thread import start_new_thread
 from logger import Logger
-
+# TODO get data from auth server
 
 class Proxy:
     def __init__(self, ip="0.0.0.0", port=8080):
