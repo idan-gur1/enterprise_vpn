@@ -133,7 +133,7 @@ def client_handler(client_sock, pcap_handler):
 
     client_sock.close()
     del clients[raw_mac]
-    # TODO do dhcp release stuff
+    # TODO do dhcp release stuff and send client disconnect to main auth
 
 
 def sniffer_handler(pcap_handler):

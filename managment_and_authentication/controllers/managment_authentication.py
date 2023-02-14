@@ -26,7 +26,53 @@ class AuthenticationManagement(Server):
             name = msg.decode()[len(SERVICE_SECRET_CODE):]
             self.services[name] = client_sock
 
-        if msg == b"client_disconnected":
+        elif msg.startswith(b"out_auth||"):
+            if len(msg.split(b"||")) != 3:
+                self.send_message(client_sock, b"bad")
+                return
+
+            email, password = msg.decode().split("||")[1:]
+            if self.database.check_user_exists(email, password):
+                self.send_message(client_sock, email.encode()+b"||auth_ok")
+                self.waiting_dual_auth.append(email)
+
+            else:
+                self.send_message(client_sock, email.encode()+b"||auth_bad")
+
+        elif msg.startswith(b"out_dual_auth||"):
+            if len(msg.split(b"||")) != 3:
+                self.send_message(client_sock, b"bad")
+                return
+
+            email, otp = msg.decode().split("||")[1:]
+
+            if email not in self.waiting_dual_auth:
+                self.send_message(client_sock, b"bad")
+                return
+
+            if self.database.check_user_otp(email, otp):
+                self.waiting_dual_auth.remove(email)
+
+                services_msg = "|".join(f"{name},{service_sock.getpeername()}" for name, service_sock in self.services.items() if name != "outer_user_manager")
+
+                self.send_message(client_sock, email.encode()+b"dual_auth_ok"+services_msg.encode())
+
+            else:
+                self.send_message(client_sock, email.encode()+b"dual_auth_bad")
+        elif msg.startswith(b"out_new_ip||"):
+            if len(msg.split(b"||")) != 2:
+                self.send_message(client_sock, b"bad")
+                return
+
+            ip = msg.decode().split("||")[1]
+
+            self.connected_client_ips.append(ip)
+
+            for name, service in self.services.items():
+                if name != "outer_user_manager":
+                    self.send_message(service, b"new" + ip.encode())
+
+        elif msg == b"client_disconnected":
             host, _ = client_sock.getpeername()
 
             for name, service in self.services.items():
@@ -60,7 +106,7 @@ class AuthenticationManagement(Server):
             if self.database.check_user_otp(email, otp):
                 self.waiting_dual_auth.remove(email)
 
-                services_msg = "|".join(f"{name},{service_sock.getpeername()}" for name, service_sock in self.services.items())
+                services_msg = "|".join(f"{name},{service_sock.getpeername()}" for name, service_sock in self.services.items() if name != "outer_user_manager")
                 self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode())
 
                 host, _ = client_sock.getpeername()
