@@ -3,7 +3,7 @@ import socket
 from .base_server import Server
 from .database import Database
 
-SERVICE_SECRET_CODE = b"code123-123"
+SERVICE_SECRET_CODE = b"code123-123"  # temp
 
 
 class AuthenticationManagement(Server):
@@ -18,7 +18,8 @@ class AuthenticationManagement(Server):
 
         self.database = database
         self.waiting_dual_auth = []
-        self.connected_client_ips = []
+        self.waiting_ip = []
+        self.connected_client_ips = {}
         self.services = {}
 
     def _handle_data(self, client_sock: socket.socket, msg: bytes):
@@ -33,11 +34,11 @@ class AuthenticationManagement(Server):
 
             email, password = msg.decode().split("||")[1:]
             if self.database.check_user_exists(email, password):
-                self.send_message(client_sock, email.encode()+b"||auth_ok")
+                self.send_message(client_sock, b"auth_ok")
                 self.waiting_dual_auth.append(email)
 
             else:
-                self.send_message(client_sock, email.encode()+b"||auth_bad")
+                self.send_message(client_sock, b"auth_bad")
 
         elif msg.startswith(b"out_dual_auth||"):
             if len(msg.split(b"||")) != 3:
@@ -53,27 +54,37 @@ class AuthenticationManagement(Server):
             if self.database.check_user_otp(email, otp):
                 self.waiting_dual_auth.remove(email)
 
-                services_msg = "|".join(f"{name},{service_sock.getpeername()}" for name, service_sock in self.services.items() if name != "outer_user_manager")
+                services_msg = "|".join(f"{name},{service_sock.getpeername()[0]}" for name, service_sock in self.services.items() if name != "outer_user_manager")
 
-                self.send_message(client_sock, email.encode()+b"dual_auth_ok"+services_msg.encode())
+                self.send_message(client_sock, b"dual_auth_ok||"+services_msg.encode())
+                self.waiting_ip.append(client_sock)
 
             else:
-                self.send_message(client_sock, email.encode()+b"dual_auth_bad")
+                self.send_message(client_sock, b"dual_auth_bad")
         elif msg.startswith(b"out_new_ip||"):
+            if client_sock not in self.waiting_ip:
+                # not the user
+                return
+
             if len(msg.split(b"||")) != 2:
                 self.send_message(client_sock, b"bad")
                 return
 
             ip = msg.decode().split("||")[1]
 
-            self.connected_client_ips.append(ip)
+            self.connected_client_ips[client_sock] = ip
 
             for name, service in self.services.items():
                 if name != "outer_user_manager":
                     self.send_message(service, b"new" + ip.encode())
 
+            self.waiting_ip.remove(client_sock)
+            self.send_message(client_sock, b"ok")
+
         elif msg == b"client_disconnected":
-            host, _ = client_sock.getpeername()
+            host = self.connected_client_ips[client_sock]
+
+            self.connected_client_ips.pop(client_sock)
 
             for name, service in self.services.items():
                 if name != "outer_user_manager":
@@ -106,12 +117,12 @@ class AuthenticationManagement(Server):
             if self.database.check_user_otp(email, otp):
                 self.waiting_dual_auth.remove(email)
 
-                services_msg = "|".join(f"{name},{service_sock.getpeername()}" for name, service_sock in self.services.items() if name != "outer_user_manager")
+                services_msg = "|".join(f"{name},{service_sock.getpeername()[0]}" for name, service_sock in self.services.items() if name != "outer_user_manager")
                 self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode())
 
                 host, _ = client_sock.getpeername()
 
-                self.connected_client_ips.append(host)
+                self.connected_client_ips[client_sock] = host
 
                 for name, service in self.services.items():
                     if name != "outer_user_manager":

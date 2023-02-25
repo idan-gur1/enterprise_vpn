@@ -3,10 +3,19 @@ import scapy.all as scapy
 import socket
 import pcap
 import wmi
+import winreg
 
+INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                   r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+                                   0, winreg.KEY_ALL_ACCESS)
 VIRTUAL_IFACE = r'\Device\NPF_{D84E9EF7-4BA2-473D-BF58-87164D8A7EC3}'  # TODO fill in the class
 VIRTUAL_IFACE_SETTING_ID = r'{D84E9EF7-4BA2-473D-BF58-87164D8A7EC3}'  # TODO fill in the class
 SERVER_ADDR = "172.16.125.103", 44444
+
+
+def set_key(name, value):
+    _, reg_type = winreg.QueryValueEx(INTERNET_SETTINGS, name)
+    winreg.SetValueEx(INTERNET_SETTINGS, name, 0, reg_type, value)
 
 
 def send_sock(sock, data):
@@ -74,6 +83,39 @@ def main():
     client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_sock.connect(SERVER_ADDR)
 
+    while True:
+        email = input("email: ")
+        password = input("password: ")
+
+        send_sock(client_sock, f"{email}||{password}".encode())
+
+        auth_response, ok = recv(client_sock)
+
+        if not ok:
+            print("error in auth recv")
+            return
+
+        if b"ok" in auth_response:
+            break
+        print("email or password are incorrect")
+
+    while True:
+        otp = input("otp: ")
+
+        send_sock(client_sock, f"{email}||{otp}".encode())
+
+        dual_auth_response, ok = recv(client_sock)
+
+        if not ok:
+            print("error in auth recv")
+            return
+
+        if b"ok" in dual_auth_response:
+            break
+        print("otp is incorrect")
+
+    print("otp ok\n\nclient started...")
+
     send_sock(client_sock, mac.encode())
 
     dhcp, ok = recv(client_sock)
@@ -87,10 +129,20 @@ def main():
         nic.EnableStatic(IPAddress=[ip], SubnetMask=[mask])
         nic.SetGateways(DefaultIPGateway=[gateway])
     except:
-        send_sock(client_sock, "bad")
+        send_sock(client_sock, "bad".encode())
         print("cant set ip")
         return
     send_sock(client_sock, "ok".encode())
+
+    services_data = {service_row.split(",")[0]: service_row.split(",")[1] for service_row in
+                     dual_auth_response.decode().split("||")[1].split("|")}
+
+    if "proxy" in services_data:
+        set_key("ProxyEnable", 1)
+        set_key("ProxyOverride", u"*.local;<local>")
+        set_key("ProxyServer", f"{services_data['proxy']}:8080")
+    if "ftp" in services_data:
+        pass
 
     pc = pcap.pcap(name=VIRTUAL_IFACE, promisc=True, immediate=True)
 

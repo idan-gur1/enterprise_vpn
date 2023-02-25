@@ -93,7 +93,51 @@ def recv(sock):
 
 
 def client_handler(client_sock, pcap_handler):
-    client_virtual_mac, ok = recv(client_sock)
+    # authenticate new client
+
+    client_auth_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_auth_sock.connect(main_auth_addr)
+
+    # primary credentials
+    while True:
+        client_credentials, ok = recv(client_sock)
+        if not ok:
+            print(f"socket error with get auth data")
+            return
+
+        send_sock(client_auth_sock, b"out_auth||"+client_credentials)
+
+        auth_response, ok = recv(client_auth_sock)
+        if not ok:
+            print(f"socket error with get auth server data")
+            return
+
+        send_sock(client_sock, auth_response)
+
+        if b"ok" in auth_response:
+            break
+
+        # otp
+        while True:
+            client_otp, ok = recv(client_sock)
+            if not ok:
+                print(f"socket error with get auth data")
+                return
+
+            send_sock(client_auth_sock, b"out_dual_auth||" + client_otp)
+
+            auth_response, ok = recv(client_auth_sock)
+            if not ok:
+                print(f"socket error with get auth server data")
+                return
+
+            send_sock(client_sock, auth_response)
+
+            if b"ok" in auth_response:
+                break
+
+    # start vlan connection
+    client_virtual_mac, ok = recv(client_auth_sock)
     if not ok:
         print(f"socket error with get mac")
         return
@@ -115,6 +159,12 @@ def client_handler(client_sock, pcap_handler):
         return
     if ip_status != b"ok":
         print(f"ip error with {client_virtual_mac}, status={ip_status}")
+        return
+
+    send_sock(client_auth_sock, b"out_new_ip||" + f"{client_ip}".encode())
+    auth_response, ok = recv(client_auth_sock)
+    if not ok or auth_response != b"ok":
+        print("ip error with main auth")
         return
 
     raw_mac = int(client_virtual_mac.replace(":", ""), 16).to_bytes(6, "big")
@@ -149,10 +199,10 @@ def sniffer_handler(pcap_handler):
 
 
 def main():
-    socket_to_main_auth = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    socket_to_main_auth.connect(main_auth_addr)
-    data = SERVICE_SECRET_CODE + b"outer_user_manager"
-    socket_to_main_auth.send(str(len(data)).zfill(8).encode() + data)
+    # socket_to_main_auth = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # socket_to_main_auth.connect(main_auth_addr)
+    # data = SERVICE_SECRET_CODE + b"outer_user_manager"
+    # socket_to_main_auth.send(str(len(data)).zfill(8).encode() + data)
 
 
     pc = pcap.pcap(name=IFACE, promisc=True, immediate=True)
