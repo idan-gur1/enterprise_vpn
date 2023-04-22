@@ -1,7 +1,7 @@
 import socket
 import time
 from select import select
-from ssl import SSLContext, PROTOCOL_TLS_SERVER
+# from ssl import SSLContext, PROTOCOL_TLS_SERVER
 
 
 class Server:
@@ -124,10 +124,15 @@ class Server:
                     msg, success = self.__recv_from_socket(sock)
 
                     if not success:
+                        print("disconnect", success, msg)
                         self.__close_client(sock)
                         self._handle_data(sock, b"client_disconnected")
                     else:
-                        self._handle_data(sock, msg)
+                        ret = self._handle_data(sock, msg)
+
+                        if ret is not None and ret in self.__clients:
+                            # noinspection PyTypeChecker
+                            self.__close_client(ret)
                     if not self.run:
                         # self.close()
                         # return

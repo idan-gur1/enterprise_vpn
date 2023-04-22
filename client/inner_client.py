@@ -1,6 +1,6 @@
 import socket
 import winreg
-from time import sleep
+from prettytable import PrettyTable
 
 SERVER_ADDR = "172.16.163.49", 55555
 
@@ -107,8 +107,176 @@ if x == "Y" or x == "y" or x.strip() == "":
         pass
 
     print("proxy set", services_data['proxy'] + ":8080")
-    print("auto disconnect in 150 seconds")
-    sleep(150)
+
+    if len(dual_auth_response.split(b"")) == 3:  # admin
+        while True:
+            print("""what do you want to do?
+1) view users status
+2) add a user
+3) remove a user
+4) change user's admin status
+5) disconnect a user
+6) view proxy rules
+7) add proxy rule
+8) remove proxy rule""")
+            print("\n\n")
+            if input("enter the index of the action: ") == 1:
+                send_sock(client_sock, b"admin||users_status")
+
+                users_status, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in users_status recv")
+                    quit()
+
+                users_table = PrettyTable()
+                users_table.field_names = ["user id", "email", "admin", "status", "ip"]
+                for user in users_status.decode().split("||"):
+                    row = user.split("|")
+                    users_table.add_row([row[0], row[1], row[2], row[3], row[4]])
+                print(users_table)
+                print("\n\n")
+
+            elif input("enter the index of the action: ") == 2:
+                user_email = input("enter the email for the new user: ")
+                user_password = input("enter the password for the new user: ")
+                admin = "true" if input("will the user be an admin?(N,y):") == "y" else "false"
+
+                send_sock(client_sock, b"admin||add_user||" + user_email.encode() + b"||" + user_password.encode() + b"||"+admin.encode())
+
+                user_response, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in user_response recv")
+                    quit()
+
+                if user_response == b"bad":
+                    print("something went wrong...")
+                elif b"bad" in user_response:
+                    print("email already in use")
+                else:
+                    secret = user_response.decode().split("||")[1]
+
+                    print(f"\n\nnew user details:\nemail: {user_email}\npassword: {user_password}\nadmin: {admin}\nmfa secret: {secret}")
+                    print("\n\n")
+
+            elif input("enter the index of the action: ") == 3:
+                user_email = input("enter the email of the user you want to remove: ")
+
+                send_sock(client_sock, b"admin||remove_user||" + user_email.encode())
+
+                user_response, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in user_response recv")
+                    quit()
+
+                if user_response == b"bad":
+                    print("something went wrong...")
+                elif user_response == b"user_connected":
+                    print("cant remove connected user")
+                else:
+                    print("user has been removed successfully")
+                print("\n\n")
+
+            elif input("enter the index of the action: ") == 4:
+                user_email = input("enter the email of the user whose you want to change their admin status: ")
+
+                send_sock(client_sock, b"admin||change_admin_status||" + user_email.encode())
+
+                user_response, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in user_response recv")
+                    quit()
+
+                if user_response == b"bad":
+                    print("something went wrong...")
+                elif user_response == b"user_connected":
+                    print("cant change status of a connected user")
+                else:
+                    print("user's status has been changed successfully")
+                print("\n\n")
+
+            elif input("enter the index of the action: ") == 5:
+                user_email = input("enter the email of the user that you want to disconnect: ")
+
+                send_sock(client_sock, b"admin||disconnect_user||" + user_email.encode())
+
+                user_response, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in user_response recv")
+                    quit()
+
+                if user_response == b"bad":
+                    print("something went wrong...")
+                elif user_response == b"user_disconnected":
+                    print("user is not connected")
+                else:
+                    print("user has been disconnected")
+                print("\n\n")
+
+            elif input("enter the index of the action: ") == 6:
+                send_sock(client_sock, b"admin||view_proxy_rules")
+
+                proxy_rules, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in users_status recv")
+                    quit()
+                print("banned servers:")
+                if proxy_rules == b"none":
+                    proxy_rules = b"   | "
+                rules_table = PrettyTable()
+                rules_table.field_names = ["domain", "ip"]
+
+                for rule in proxy_rules.decode().split("||"):
+                    row = rule.split("|")
+                    rules_table.add_row([row[0], row[1]])
+                print(rules_table)
+                print("\n\n")
+
+            elif input("enter the index of the action: ") == 7:
+                server = input("enter a url/domain/ip of a server you want to ban with the proxy: ")
+
+                send_sock(client_sock, b"admin||add_proxy_rule||" + server.encode())
+
+                rule_response, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in user_response recv")
+                    quit()
+
+                if rule_response == b"bad":
+                    print("something went wrong...")
+                elif rule_response == b"bad_request":
+                    print("not a valid request")
+                elif rule_response == b"server_down":
+                    print("server is down - cant find ip")
+                else:
+                    print("rule has been added successfully")
+                print("\n\n")
+            elif input("enter the index of the action: ") == 8:
+                server = input("enter the domain of the rule you want to remove: ")
+
+                send_sock(client_sock, b"admin||remove_proxy_rule||" + server.encode())
+
+                rule_response, ok = recv(client_sock)
+
+                if not ok:
+                    print("error in user_response recv")
+                    quit()
+
+                if rule_response == b"bad":
+                    print("something went wrong...")
+                elif rule_response == b"bad_request":
+                    print("domain not in current rules")
+                else:
+                    print("proxy rule has been removed successfully")
+                print("\n\n")
+
+    input("to quit press enter")
     set_key('ProxyEnable', 0)
     client_sock.close()
 

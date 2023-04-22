@@ -5,7 +5,7 @@ import socket
 # TODO get data from auth server
 IFACE = r'\Device\NPF_{AE7C22F9-20C6-4682-B63F-DA27D3341CAD}'
 SERVER_ADDR = "0.0.0.0", 44444
-main_auth_addr = "0.0.0.0", 54321  # TODO change this
+main_auth_addr = "172.16.163.49", 55555  # TODO change this
 SERVICE_SECRET_CODE = b"code123-123"
 DEBUG = True
 

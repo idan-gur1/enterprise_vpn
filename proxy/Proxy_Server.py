@@ -3,8 +3,8 @@ from _thread import start_new_thread
 from logger import Logger
 
 # TODO get data from auth server
-AUTH_ADDR = "0.0.0.0", 54321
-SERVICE_SECRET_CODE = b"code123-123"
+AUTH_ADDR = "172.16.163.49", 55555
+SERVICE_SECRET_CODE = "code123-123"
 
 
 def recv(sock):
@@ -51,6 +51,7 @@ class Proxy:
 
         self.logger = Logger("proxy", "proxy server started")
         self.allowed_clients = []
+        self.banned_servers = []
 
         self.__setup_socket()
 
@@ -77,6 +78,7 @@ class Proxy:
         auth_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         auth_sock.connect(AUTH_ADDR)
         send_sock(auth_sock, f"{SERVICE_SECRET_CODE}proxy".encode())
+        print("sent", f"{SERVICE_SECRET_CODE}proxy".encode())
         while True:
             data, ok = recv(auth_sock)
 
@@ -91,6 +93,14 @@ class Proxy:
                 usr = data[len("left"):]
                 if usr in self.allowed_clients:
                     self.allowed_clients.remove(usr)
+            elif data.startswith("unban"):
+                host = data[len("unban"):]
+                if host in self.banned_servers:
+                    self.banned_servers.remove(host)
+            elif data.startswith("ban"):
+                host = data[len("ban"):]
+                if host not in self.banned_servers:
+                    self.banned_servers.append(host)
 
     def close(self):
         pass
@@ -153,6 +163,9 @@ class Proxy:
         # initializing socket to webserver
         server, port = connect_request.split(b" ")[1].split(b":")
         webserver_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        if server.decode() in self.banned_servers:
+            return
 
         try:
             webserver_sock.connect((server.decode(), int(port)))
@@ -226,6 +239,9 @@ class Proxy:
 
         webserver_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.logger.debug(f"{http_request}")
+
+        if web_server.decode() in self.banned_servers:
+            return
 
         try:
             webserver_sock.connect((web_server.decode(), int(port)))
