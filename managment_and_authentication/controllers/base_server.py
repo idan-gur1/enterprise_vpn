@@ -125,8 +125,9 @@ class Server:
 
                     if not success:
                         print("disconnect", success, msg)
-                        self.__close_client(sock)
-                        self._handle_data(sock, b"client_disconnected")
+                        if sock in self.__clients:
+                            self.__close_client(sock)
+                            self._handle_data(sock, b"client_disconnected")
                     else:
                         ret = self._handle_data(sock, msg)
 
