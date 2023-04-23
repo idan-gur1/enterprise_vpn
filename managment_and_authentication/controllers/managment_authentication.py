@@ -47,7 +47,7 @@ class AuthenticationManagement(Server):
     def __handle_admin_data(self, client_sock: socket.socket, msg: bytes):
         if msg == b"users_status":
             all_users = self.database.get_all_users()
-            users_status_msg = "||".join(("|".join((user[0], user[1], 'yes' if user[4] == 1 else 'no',
+            users_status_msg = "||".join(("|".join((str(user[0]), user[1], 'yes' if user[4] == 1 else 'no',
                                                     'connected' if user[1] in self.connected_users else 'disconnected',
                                                     self.connected_users.get(user[1], "-"))) for user in all_users))
 
@@ -79,11 +79,12 @@ class AuthenticationManagement(Server):
                 self.send_message(client_sock, b"bad")
                 return
             _, email = msg.decode().split("||")
-
+            print(email)
             if email in self.connected_users:
                 self.send_message(client_sock, b"user_connected")
             else:
                 if self.database.change_admin_status(email):
+                    print(True)
                     self.send_message(client_sock, b"ok")
                 else:
                     self.send_message(client_sock, b"bad_user")
@@ -123,20 +124,22 @@ class AuthenticationManagement(Server):
                 self.send_message(client_sock, b"bad")
                 return
             _, server = msg.decode().split("||")
-
+            print(server)
             domain = urlparse(server).netloc
+            print(domain)
             if domain == "" and not is_valid_ipv4_address(domain):
                 self.send_message(client_sock, b"bad_request")
+                return
 
             try:
                 host = socket.gethostbyname(domain)
             except:
                 self.send_message(client_sock, b"server_down")
                 return
+            else:
+                self.proxy_rules[domain] = host
+                self.send_message(self.services["proxy"], b"ban"+host.encode())
 
-            self.proxy_rules[domain] = host
-
-            self.send_message(self.services["proxy"], b"ban"+host.encode())
 
             self.send_message(client_sock, b"ok")
         elif msg.startswith(b"remove_proxy_rule||"):
