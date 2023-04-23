@@ -13,8 +13,9 @@ class Database:
         # #### for debugging
         self.create_table_if_not_exists("users", (
             "user_id INTEGER PRIMARY KEY AUTOINCREMENT", "email TEXT", "password TEXT", "secret TEXT", "admin INTEGER"))
-        self.add_user("test@test.com", "asdasdasd")
-        self.add_user("test2@test.com", "asdasdasd")
+        print(self.add_user("test@test.com", "asdasdasd", True))
+        print(self.add_user("test2@test.com", "asdasdasd"))
+        print(self.get_all_users())
         #####
 
     def query(self, sql):
@@ -93,7 +94,7 @@ class Database:
         self.create_table_if_not_exists("users", (
             "user_id INTEGER PRIMARY KEY AUTOINCREMENT", "email TEXT", "password TEXT", "secret TEXT", "admin INTEGER"))
 
-        self.query(f"DELETE FROM tasks WHERE email='{email}'")
+        self.query(f"DELETE FROM users WHERE email='{email}'")
 
     def check_user_exists(self, email, password):
         """
@@ -133,10 +134,11 @@ class Database:
         :return:
         """
 
-        if self.check_if_exists("users", (("email", f"'{email}'"),)):
+        if not self.check_if_exists("users", (("email", f"'{email}'"),)):
             return False
 
         new_admin_value = "0" if self.check_if_admin(email) else "1"
+        print(new_admin_value)
         self.query(f"UPDATE users SET admin={new_admin_value} WHERE email='{email}'")
 
         return True
