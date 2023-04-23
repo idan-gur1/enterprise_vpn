@@ -3,7 +3,7 @@ from _thread import start_new_thread
 from logger import Logger
 
 # TODO get data from auth server
-AUTH_ADDR = "172.16.163.49", 55555
+AUTH_ADDR = "192.168.1.70", 55555
 SERVICE_SECRET_CODE = "code123-123"
 
 
@@ -95,10 +95,12 @@ class Proxy:
                     self.allowed_clients.remove(usr)
             elif data.startswith("unban"):
                 host = data[len("unban"):]
+                print(host)
                 if host in self.banned_servers:
                     self.banned_servers.remove(host)
             elif data.startswith("ban"):
                 host = data[len("ban"):]
+                print(host)
                 if host not in self.banned_servers:
                     self.banned_servers.append(host)
 
@@ -164,9 +166,6 @@ class Proxy:
         server, port = connect_request.split(b" ")[1].split(b":")
         webserver_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        if server.decode() in self.banned_servers:
-            return
-
         try:
             webserver_sock.connect((server.decode(), int(port)))
         except:
@@ -174,6 +173,11 @@ class Proxy:
             self.logger.debug(f"{connect_request}")
 
             client_sock.close()
+
+        if webserver_sock.getpeername()[0] in self.banned_servers:
+            webserver_sock.close()
+            client_sock.close()
+            return
 
         # reporting to client that connection has been Established
         reply = "HTTP/1.0 200 Connection established\r\n"
@@ -240,14 +244,16 @@ class Proxy:
         webserver_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.logger.debug(f"{http_request}")
 
-        if web_server.decode() in self.banned_servers:
-            return
-
         try:
             webserver_sock.connect((web_server.decode(), int(port)))
         except:
             self.logger.warning(f"could not connect to webserver {web_server.decode()}")
             # self.logger.debug(f"{http_request}")
+            client_sock.close()
+            return
+
+        if webserver_sock.getpeername()[0] in self.banned_servers:
+            webserver_sock.close()
             client_sock.close()
             return
 
