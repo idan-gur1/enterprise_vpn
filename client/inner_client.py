@@ -2,7 +2,7 @@ import socket
 import winreg
 from prettytable import PrettyTable
 
-SERVER_ADDR = "172.16.163.49", 55555
+SERVER_ADDR = "192.168.1.70", 55555
 
 INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                    r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
@@ -108,7 +108,7 @@ if x == "Y" or x == "y" or x.strip() == "":
 
     print("proxy set", services_data['proxy'] + ":8080")
 
-    if len(dual_auth_response.split(b"")) == 3:  # admin
+    if len(dual_auth_response.split(b"||")) == 3:  # admin
         while True:
             print("""what do you want to do?
 1) view users status
@@ -120,7 +120,9 @@ if x == "Y" or x == "y" or x.strip() == "":
 7) add proxy rule
 8) remove proxy rule""")
             print("\n\n")
-            if input("enter the index of the action: ") == 1:
+            index = input("enter the index of the action: ")
+            
+            if index == "1":
                 send_sock(client_sock, b"admin||users_status")
 
                 users_status, ok = recv(client_sock)
@@ -137,7 +139,7 @@ if x == "Y" or x == "y" or x.strip() == "":
                 print(users_table)
                 print("\n\n")
 
-            elif input("enter the index of the action: ") == 2:
+            elif index == "2":
                 user_email = input("enter the email for the new user: ")
                 user_password = input("enter the password for the new user: ")
                 admin = "true" if input("will the user be an admin?(N,y):") == "y" else "false"
@@ -160,7 +162,7 @@ if x == "Y" or x == "y" or x.strip() == "":
                     print(f"\n\nnew user details:\nemail: {user_email}\npassword: {user_password}\nadmin: {admin}\nmfa secret: {secret}")
                     print("\n\n")
 
-            elif input("enter the index of the action: ") == 3:
+            elif index == "3":
                 user_email = input("enter the email of the user you want to remove: ")
 
                 send_sock(client_sock, b"admin||remove_user||" + user_email.encode())
@@ -179,7 +181,7 @@ if x == "Y" or x == "y" or x.strip() == "":
                     print("user has been removed successfully")
                 print("\n\n")
 
-            elif input("enter the index of the action: ") == 4:
+            elif index == "4":
                 user_email = input("enter the email of the user whose you want to change their admin status: ")
 
                 send_sock(client_sock, b"admin||change_admin_status||" + user_email.encode())
@@ -198,7 +200,7 @@ if x == "Y" or x == "y" or x.strip() == "":
                     print("user's status has been changed successfully")
                 print("\n\n")
 
-            elif input("enter the index of the action: ") == 5:
+            elif index == "5":
                 user_email = input("enter the email of the user that you want to disconnect: ")
 
                 send_sock(client_sock, b"admin||disconnect_user||" + user_email.encode())
@@ -217,7 +219,7 @@ if x == "Y" or x == "y" or x.strip() == "":
                     print("user has been disconnected")
                 print("\n\n")
 
-            elif input("enter the index of the action: ") == 6:
+            elif index == "6":
                 send_sock(client_sock, b"admin||view_proxy_rules")
 
                 proxy_rules, ok = recv(client_sock)
@@ -230,14 +232,15 @@ if x == "Y" or x == "y" or x.strip() == "":
                     proxy_rules = b"   | "
                 rules_table = PrettyTable()
                 rules_table.field_names = ["domain", "ip"]
-
+                print(proxy_rules)
                 for rule in proxy_rules.decode().split("||"):
                     row = rule.split("|")
+                    if len(row) != 2: continue
                     rules_table.add_row([row[0], row[1]])
                 print(rules_table)
                 print("\n\n")
 
-            elif input("enter the index of the action: ") == 7:
+            elif index == "7":
                 server = input("enter a url/domain/ip of a server you want to ban with the proxy: ")
 
                 send_sock(client_sock, b"admin||add_proxy_rule||" + server.encode())
@@ -257,7 +260,7 @@ if x == "Y" or x == "y" or x.strip() == "":
                 else:
                     print("rule has been added successfully")
                 print("\n\n")
-            elif input("enter the index of the action: ") == 8:
+            elif index == "8":
                 server = input("enter the domain of the rule you want to remove: ")
 
                 send_sock(client_sock, b"admin||remove_proxy_rule||" + server.encode())
