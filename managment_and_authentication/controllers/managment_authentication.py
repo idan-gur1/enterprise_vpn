@@ -1,5 +1,10 @@
 import socket
 
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from cryptography.fernet import Fernet
 from urllib.parse import urlparse
 from .base_server import Server
 from .database import Database
@@ -43,6 +48,7 @@ class AuthenticationManagement(Server):
         self.connected_admins = []
         self.services = {}
         self.proxy_rules = {}
+        self.network_key = Fernet.generate_key()
 
     def __handle_admin_data(self, client_sock: socket.socket, msg: bytes):
         if msg == b"users_status":
@@ -267,7 +273,10 @@ class AuthenticationManagement(Server):
                 self.send_message(client_sock, b"bad")
                 return
 
-            email, otp = msg.decode().split("||")[1:]
+            str_part, public_key_bytes = msg.split(b"|||")
+
+            email, otp = str_part.decode().split("||")[1:]
+            # email, otp = msg.decode().split("||")[1:]
 
             if email not in self.waiting_dual_auth:
                 self.send_message(client_sock, b"bad")
@@ -280,11 +289,19 @@ class AuthenticationManagement(Server):
                     f"{name},{service_sock.getpeername()[0]}" for name, service_sock in self.services.items() if
                     name != "outer_user_manager")
 
-                if self.database.check_if_admin(email):
-                    self.connected_admins.append(client_sock)
-                    self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"||admin")
-                else:
-                    self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode())
+                # if self.database.check_if_admin(email):
+                #     self.connected_admins.append(client_sock)
+                #     self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"||admin")
+                # else:
+
+                public_key_from_bytes = load_pem_public_key(public_key_bytes)
+
+                encrypted_key = public_key_from_bytes.encrypt(self.network_key, padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None))
+
+                self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"|||" + encrypted_key)
 
                 host, _ = client_sock.getpeername()
 
