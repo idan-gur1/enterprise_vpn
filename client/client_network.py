@@ -1,6 +1,7 @@
 import socket
 import winreg
 import pydivert
+import struct
 from scapy.all import Ether, IP, TCP, fragment, sendp
 from cryptography.fernet import Fernet
 from _thread import start_new_thread
@@ -14,6 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                    r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
                                    0, winreg.KEY_ALL_ACCESS)
+MTU = 1480
 
 
 def set_key(name, value):
@@ -27,6 +29,83 @@ def encrypt(plain, fblock):
 
 def decrypt(cipher, fblock):
     return fblock.decrypt(cipher)
+
+
+def ip_fragmentation(orig_packet, mtu):
+    # Extract the IP header fields from the original packet
+    ip_header = orig_packet[0:20]
+    version_ihl, dscp_ecn, total_length, identification, flags_offset, ttl, protocol, checksum, \
+    src_addr, dst_addr = struct.unpack('!BBHHHBBH4s4s', ip_header)
+    total_length -= 20  # Subtract the length of the IP header
+
+    # Calculate the number of fragments needed
+    num_fragments = total_length // mtu
+    if total_length % mtu != 0:
+        num_fragments += 1
+
+    # Split the data into fragments
+    fragments = []
+    offset = 0
+    for i in range(num_fragments):
+        if i == num_fragments - 1:
+            # Last fragment, set the "more fragments" flag to 0
+            flags = 0
+        else:
+            # Not the last fragment, set the "more fragments" flag to 1
+            flags = 1
+
+        # Construct the IP header for the fragment
+        version_ihl = (4 << 4) | 5  # Version: 4, IHL: 5 (20 bytes)
+        dscp_ecn = 0x00
+        total_length_frag = min(mtu + 20, total_length - offset + 20)  # Fragment length + IP header length
+        identification_frag = identification
+        flags_offset_frag = (flags << 13) | (offset >> 3)
+        ttl_frag = ttl
+        protocol_frag = protocol
+        checksum_frag = 0  # Calculate later
+        src_addr_frag = src_addr
+        dst_addr_frag = dst_addr
+
+        # Pack the IP header fields into a bytes object
+        ip_header_frag = struct.pack('!BBHHHBBH4s4s', version_ihl, dscp_ecn, total_length_frag, identification_frag,
+                                     flags_offset_frag, ttl_frag, protocol_frag, checksum_frag, src_addr_frag,
+                                     dst_addr_frag)
+
+        # Get the fragment data and add it to the fragments list
+        fragment_data = orig_packet[offset + 20:offset + mtu + 20]
+        fragment = ip_header_frag + fragment_data
+
+        # Calculate the checksum for the fragment
+        checksum_frag = calc_checksum(ip_header_frag)
+        fragment = fragment[:10] + struct.pack('!H', checksum_frag) + fragment[12:]
+
+        fragments.append(fragment)
+
+        # Update the offset for the next fragment
+        offset += mtu
+
+    return fragments
+
+
+def calc_checksum(data):
+    # Calculate the checksum for the given data
+    # The data should be a bytes object containing the IP header fields
+    # The checksum field in the IP header should be set to 0 before calling this function
+
+    # Calculate the sum of 16-bit words
+    word_sum = 0
+    for i in range(0, len(data), 2):
+        word = (data[i] << 8) + data[i + 1]
+        word_sum += word
+
+    # Add the carry to the sum
+    while word_sum >> 16:
+        word_sum = (word_sum & 0xffff) + (word_sum >> 16)
+
+    # Take the one's complement of the sum
+    checksum = ~word_sum & 0xffff
+
+    return checksum
 
 
 class ClientNetwork:
@@ -80,7 +159,7 @@ class ClientNetwork:
         return 3
 
     def attempt_dual_auth(self, email: str, otp: str):
-        self.__send_to_server(f"login||{email}||{otp}".encode() + b"|||" + self.__public_key_bytes)
+        self.__send_to_server(f"dual_auth||{email}||{otp}".encode() + b"|||" + self.__public_key_bytes)
 
         server_response, ok = self.__recv_from_server()
 
@@ -145,7 +224,7 @@ class ClientNetwork:
 
                     elif packet.src_addr in self.__vpn_clients and packet.is_inbound:
                         if packet.ip.mf is True or packet.ip.frag_offset != 0:
-                            print("got a fragment")
+                            # print("got a fragment")
                             packet_id = (packet.ip.src_addr, packet.ip.dst_addr, packet.ip.ident)
                             buffer[packet_id] = buffer.get(packet_id, b'') + packet.raw.tobytes()[20:]
 
