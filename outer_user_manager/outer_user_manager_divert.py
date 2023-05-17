@@ -3,9 +3,13 @@ import sys
 import pcap
 import scapy.all as scapy
 from _thread import start_new_thread
+# from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes  # , serialization
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 MAIN_AUTH_ADDR = "172.16.163.49", 55555
-
+SERVER_IP = "192.168.1.106"
 
 def send_sock(sock, data):
     sock.send(str(len(data)).zfill(8).encode() + data)
@@ -44,7 +48,9 @@ def recv(sock):
 
 class OuterUserManager:
 
-    def __init__(self, admin_code: str, ip="0.0.0.0", port=44444):
+    DEBUG = False
+
+    def __init__(self, admin_code="code123-123", ip="0.0.0.0", port=44444):
         self.__admin_code: str = admin_code
         self.__addr: tuple[str, int] = ip, port
         try:
@@ -54,6 +60,9 @@ class OuterUserManager:
             sys.exit(1)
         # self.__raw_mac_addr = scapy.get_if_hwaddr(self.__interface)
         self.__raw_mac_addr: bytes = int(scapy.get_if_hwaddr(self.__interface).replace(":", ""), 16).to_bytes(6, "big")
+        self.__run = False
+
+        self.__vpn_key: bytes = b''
 
         self.__vpn_clients: dict[bytes, bytes] = {}
         self.__clients: dict[bytes, socket.socket] = {}
@@ -67,12 +76,24 @@ class OuterUserManager:
         self.__server_socket.bind(self.__addr)
 
     def start(self):
+        self.__run = True
+
         start_new_thread(self.__sniffer_handler, ())
+        start_new_thread(self.__main_auth_handler, ())
 
         self.__server_socket.listen()
 
+        self.__main_loop()
+
     def close(self):
-        pass
+        self.__run = False
+        self.__server_socket.close()
+        self.__pcap_handler.close()
+
+        for client_sock in self.__clients.values():
+            client_sock.close()
+
+        sys.exit(0)
 
     def __sniffer_handler(self):
         for _, packet in self.__pcap_handler:
@@ -106,6 +127,14 @@ class OuterUserManager:
 
         send_sock(main_auth_socket, f"{self.__admin_code}outer_user_manager".encode())
 
+        key, ok = recv(main_auth_socket)
+
+        if not ok:
+            self.close()
+            return
+
+        self.__vpn_key = key
+
         while True:
             data, ok = recv(main_auth_socket)
 
@@ -125,10 +154,172 @@ class OuterUserManager:
                     del self.__vpn_clients[ip]
 
     def __main_loop(self):
-        pass
+        while self.__run:
+            client, client_addr = self.__server_socket.accept()
+            print(f"new connection from {client_addr}")
+            start_new_thread(self.__handle_client, (client,))
 
     def __handle_client(self, client: socket.socket):
-        pass
+        main_auth = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        main_auth.connect(MAIN_AUTH_ADDR)
 
-    def __get_dhcp_ip(self):
-        pass
+        while True:
+            first_auth, ok = recv(client)
+
+            send_sock(main_auth, first_auth)
+            auth_first_response, ok = recv(main_auth)
+
+            if not ok:
+                print(f"socket error credentials")
+                return
+
+            send_sock(client, auth_first_response)
+
+            if b'ok' in auth_first_response:
+                break
+
+        while True:
+            second_auth_bytes, ok = recv(client)
+
+            second_auth, public_key = second_auth_bytes.split(b"|||")
+
+            send_sock(main_auth, second_auth)
+            auth_second_response, ok = recv(main_auth)
+
+            if not ok:
+                print(f"socket error otp")
+                return
+
+            if b'ok' in auth_first_response:
+                public_key_from_bytes = load_pem_public_key(public_key)
+
+                encrypted_key = public_key_from_bytes.encrypt(self.__vpn_key, padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None))
+
+                send_sock(client, auth_second_response + b"|||" + encrypted_key)
+                break
+            else:
+                send_sock(client, auth_second_response)
+
+        # start vlan connection
+        print(f"new client ")
+        client_virtual_mac, ok = recv(client)
+        print(client_virtual_mac)
+        if not ok:
+            print(f"socket error with get mac")
+            return
+
+        client_virtual_mac = client_virtual_mac.decode(errors="ignore")
+        hostname = f"vlan_{len(self.__clients)}"
+
+        try:
+            client_ip, mask, gateway = self.__get_dhcp_ip(hostname, client_virtual_mac)
+        except:
+            print(f"dhcp error for {client_virtual_mac}")
+            return
+        msg = f"{client_ip}|{mask}|{gateway}"
+        send_sock(client, msg.encode())
+
+        ip_status, ok = recv(client)
+        print(ip_status)
+        if not ok:
+            print(f"socket error with ip status")
+            return
+        if ip_status != b"ok":
+            print(f"ip error with {client_virtual_mac}, status={ip_status}")
+            return
+
+        send_sock(main_auth, f"out_new_ip||{client_ip}||{client_virtual_mac}".encode())
+
+        auth_response, ok = recv(main_auth)
+
+        if not ok:
+            print(f"socket error otp")
+            return
+
+        if auth_response != b"ok":
+            print(f"ip main auth error with {client_virtual_mac}")
+
+        # send_gratuitous_arp(client_virtual_mac, client_ip)
+        # send_gratuitous_arp(client_virtual_mac, client_ip)
+        # send_gratuitous_arp(client_virtual_mac, client_ip)
+        raw_mac = int(client_virtual_mac.replace(":", ""), 16).to_bytes(6, "big")
+
+        def l2_header(dst: bytes):
+            return dst + self.__raw_mac_addr + b"\x08\x00"
+
+        raw_ip = socket.inet_aton(client_ip)
+        # clients[raw_mac] = client_sock
+        self.__clients[raw_ip] = client
+        # client_ip_mac[socket.inet_aton(client_ip)] = raw_mac
+        print(self.__clients)
+        while True:
+            data, ok = recv(client)
+            print(f"got packet data")
+            if not ok:
+                print(f"socket error with recv data")
+                break
+            if not data:
+                print(f"disconnected")
+                break
+            self.__pcap_handler.sendpacket(l2_header(self.__vpn_clients.get(data[16:20], b"\xff\xff\xff\xff\xff\xff")) + data)
+
+        client.close()
+        if raw_ip in self.__clients:
+            del self.__clients[raw_ip]
+
+    def __get_dhcp_ip(self, hostname, mac):
+        local_mac_raw = int(mac.replace(":", ""), 16).to_bytes(6, "big")
+        xid = int(scapy.RandInt())
+
+        dhcp_discover = scapy.Ether(src=mac, dst='ff:ff:ff:ff:ff:ff') / scapy.IP(src='0.0.0.0',
+                                                                                 dst='255.255.255.255') / scapy.UDP(
+            dport=67, sport=68) / scapy.BOOTP(chaddr=local_mac_raw, xid=xid) / scapy.DHCP(
+            options=[('message-type', 'discover'), ("hostname", hostname), 'end'])
+        if OuterUserManager.DEBUG:
+            print("DEBUG discover:")
+            dhcp_discover.display()
+
+        scapy.sendp(dhcp_discover, iface=self.__interface)
+        dhcp_offer = \
+            scapy.sniff(iface=self.__interface, stop_filter=lambda x: x.haslayer(scapy.BOOTP) and x[scapy.BOOTP].xid == xid)[
+                -1]
+        if OuterUserManager.DEBUG:
+            print("DEBUG offer:")
+            dhcp_offer.display()
+
+        gateway, mask = '', ''
+        for option in dhcp_offer[scapy.DHCP].options:
+            if option[0] == "router":
+                gateway = option[1]
+            if option[0] == "subnet_mask":
+                mask = option[1]
+
+        myip = dhcp_offer[scapy.BOOTP].yiaddr
+        sip = dhcp_offer[scapy.BOOTP].siaddr
+        xid = dhcp_offer[scapy.BOOTP].xid
+
+        dhcp_request = scapy.Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") / scapy.IP(src="0.0.0.0",
+                                                                                dst="255.255.255.255") / scapy.UDP(
+            sport=68, dport=67) / scapy.BOOTP(chaddr=local_mac_raw, xid=xid) / scapy.DHCP(
+            options=[("message-type", "request"), ("server_id", sip), ("requested_addr", myip), ("hostname", hostname),
+                     ("param_req_list", [1, 3, 6, 15, ]), "end"])
+        if OuterUserManager.DEBUG:
+            print("DEBUG request:")
+            dhcp_request.display()
+
+        scapy.sendp(dhcp_request, iface=self.__interface)
+        dhcp_ack = \
+            scapy.sniff(iface=self.__interface, stop_filter=lambda x: x.haslayer(scapy.BOOTP) and x[scapy.BOOTP].xid == xid)[-1]
+        if OuterUserManager.DEBUG:
+            print("DEBUG ack:")
+            dhcp_ack.display()
+
+        return myip, mask, gateway
+
+
+if __name__ == '__main__':
+    server = OuterUserManager(ip=SERVER_IP)
+    server.start()

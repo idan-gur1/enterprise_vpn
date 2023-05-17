@@ -1,8 +1,8 @@
 import socket
 
-from cryptography.hazmat.primitives.asymmetric import rsa
+# from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import hashes  # , serialization
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.fernet import Fernet
 from urllib.parse import urlparse
@@ -10,7 +10,6 @@ from .base_server import Server
 from .database import Database
 
 SERVICE_SECRET_CODE = b"code123-123"  # temp
-# TODO add admin support for outer client
 
 
 def is_valid_ipv4_address(address):
@@ -36,18 +35,22 @@ class AuthenticationManagement(Server):
         :param port: int
         """
 
+        print(SERVICE_SECRET_CODE)
+
         super().__init__(ip, port)
 
         self.database = database
         self.waiting_dual_auth = []
         self.waiting_ip = {}
         self.connected_client_ips = {}
+        self.connected_client_hwaddr = {}
         self.connected_users = {}
         self.email_sock = {}
         self.outer_users = []
         self.connected_admins = []
         self.services = {}
         self.proxy_rules = {}
+        self.proxy_banned = []
         self.network_key = Fernet.generate_key()
 
     def __handle_admin_data(self, client_sock: socket.socket, msg: bytes):
@@ -55,7 +58,9 @@ class AuthenticationManagement(Server):
             all_users = self.database.get_all_users()
             users_status_msg = "||".join(("|".join((str(user[0]), user[1], 'yes' if user[4] == 1 else 'no',
                                                     'connected' if user[1] in self.connected_users else 'disconnected',
-                                                    self.connected_users.get(user[1], "-"))) for user in all_users))
+                                                    self.connected_users.get(user[1], "-"),
+                                                    "False" if user[1] in self.proxy_banned else "True",
+                                                    "True")) for user in all_users))
 
             self.send_message(client_sock, users_status_msg.encode())
         elif msg.startswith(b"add_user||"):
@@ -94,6 +99,20 @@ class AuthenticationManagement(Server):
                     self.send_message(client_sock, b"ok")
                 else:
                     self.send_message(client_sock, b"bad_user")
+        elif msg.startswith(b"change_proxy_status||"):
+            if len(msg.split(b"||")) != 2:
+                self.send_message(client_sock, b"bad")
+                return
+            _, email = msg.decode().split("||")
+
+            if email in self.connected_users:
+                if email in self.proxy_banned:
+                    self.send_message(self.services["proxy"], b"left" + self.connected_users[email])
+                else:
+                    self.send_message(self.services["new"], b"left" + self.connected_users[email])
+                self.send_message(client_sock, b"ok")
+            else:
+                self.send_message(client_sock, b"user_disconnected")
         elif msg.startswith(b"disconnect_user"):
             if len(msg.split(b"||")) != 2:
                 self.send_message(client_sock, b"bad")
@@ -163,8 +182,17 @@ class AuthenticationManagement(Server):
 
     def _handle_data(self, client_sock: socket.socket, msg: bytes):
         if msg.startswith(SERVICE_SECRET_CODE):
-            name = msg.decode()[len(SERVICE_SECRET_CODE):]
+            name, mac = msg[len(SERVICE_SECRET_CODE):].split(b"||")
+            name = name.decode()
+            host = client_sock.getpeername()[0]
             self.services[name] = client_sock
+
+            if name == "outer_user_manager":
+                self.send_message(client_sock, self.network_key)
+            else:
+                self.send_message(self.services["outer_user_manager"], b"new" +
+                                  int(mac.replace(":", ""), 16).to_bytes(6, "big") + socket.inet_aton(host))
+
             print(f"added {name}")
 
         elif msg.startswith(b"admin||"):
@@ -202,7 +230,9 @@ class AuthenticationManagement(Server):
                     f"{name},{service_sock.getpeername()[0]}" for name, service_sock in self.services.items() if
                     name != "outer_user_manager")
 
-                self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode())
+                admin = "true" if self.database.check_if_admin(email) else "false"
+
+                self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"||" + admin.encode())
                 self.waiting_ip[client_sock] = email
                 self.email_sock[email] = client_sock
                 self.connected_users[email] = "-"
@@ -217,14 +247,18 @@ class AuthenticationManagement(Server):
                 # not the user
                 return
 
-            if len(msg.split(b"||")) != 2:
+            if len(msg.split(b"||")) != 3:
                 self.send_message(client_sock, b"bad")
                 return
 
-            ip = msg.decode().split("||")[1]
+            ip, mac = msg.decode().split("||")[1:]
+
+            for other_client_sock in self.connected_client_ips.keys():
+                self.send_message(other_client_sock, f"user||{mac}||{ip}".encode())
 
             self.connected_client_ips[client_sock] = ip
             self.connected_users[self.waiting_ip[client_sock]] = ip
+            self.connected_client_hwaddr[ip] = mac
 
             for name, service in self.services.items():
                 if name != "outer_user_manager":
@@ -234,8 +268,11 @@ class AuthenticationManagement(Server):
             self.send_message(client_sock, b"ok")
 
         elif msg == b"client_disconnected":
-            if client_sock in self.services.values(): return  # TODO announce to all clients
+            if client_sock in self.services.values(): return
             host = self.connected_client_ips[client_sock]
+
+            if host in self.connected_client_hwaddr:
+                self.connected_client_hwaddr.pop(host)
 
             self.connected_client_ips.pop(client_sock)
             if client_sock in self.connected_admins:
@@ -269,13 +306,13 @@ class AuthenticationManagement(Server):
                 self.send_message(client_sock, b"auth_bad")
 
         elif msg.startswith(b"dual_auth||"):
-            if len(msg.split(b"||")) != 3:
+            if len(msg.split(b"|||")) != 2:
                 self.send_message(client_sock, b"bad")
                 return
 
             str_part, public_key_bytes = msg.split(b"|||")
 
-            email, otp = str_part.decode().split("||")[1:]
+            email, otp, mac = str_part.decode().split("||")[1:]
             # email, otp = msg.decode().split("||")[1:]
 
             if email not in self.waiting_dual_auth:
@@ -289,10 +326,10 @@ class AuthenticationManagement(Server):
                     f"{name},{service_sock.getpeername()[0]}" for name, service_sock in self.services.items() if
                     name != "outer_user_manager")
 
-                # if self.database.check_if_admin(email):
-                #     self.connected_admins.append(client_sock)
-                #     self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"||admin")
-                # else:
+                if self.database.check_if_admin(email):
+                    admin = "true"
+                else:
+                    admin = "false"
 
                 public_key_from_bytes = load_pem_public_key(public_key_bytes)
 
@@ -301,17 +338,27 @@ class AuthenticationManagement(Server):
                     algorithm=hashes.SHA256(),
                     label=None))
 
-                self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"|||" + encrypted_key)
+                clients_msg = "|".join(f"{c_mac},{c_ip}" for c_mac, c_ip in self.connected_client_hwaddr.items())
+
+                self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"||" + clients_msg.encode()
+                                  +b"||" + admin.encode() + b"|||" + encrypted_key)
 
                 host, _ = client_sock.getpeername()
+
+                for other_client_sock in self.connected_client_ips.keys():
+                    self.send_message(other_client_sock, f"user||{mac}||{host}".encode())
 
                 self.connected_client_ips[client_sock] = host
                 self.connected_users[email] = host
                 self.email_sock[email] = client_sock
+                self.connected_client_hwaddr[host] = mac
 
                 for name, service in self.services.items():
                     if name != "outer_user_manager":
                         self.send_message(service, b"new" + host.encode())
+                    else:
+                        self.send_message(service, b"new" + int(mac.replace(":", ""), 16).to_bytes(6, "big") +
+                                          socket.inet_aton(host))
 
             else:
                 self.send_message(client_sock, b"dual_auth_bad")

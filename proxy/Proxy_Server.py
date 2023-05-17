@@ -1,10 +1,13 @@
 import socket
+import sys
+
+import scapy.all as scapy
 from _thread import start_new_thread
 from logger import Logger
 
-# TODO get data from auth server
 AUTH_ADDR = "192.168.1.70", 55555
 SERVICE_SECRET_CODE = "code123-123"
+PROXY_IP = "192.168.1.106"
 
 
 def recv(sock):
@@ -53,6 +56,12 @@ class Proxy:
         self.allowed_clients = []
         self.banned_servers = []
 
+        try:
+            self.interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == PROXY_IP).network_name
+        except:
+            print("couldn't find the wanted adapter\nexiting...")
+            sys.exit(1)
+
         self.__setup_socket()
 
     def __setup_socket(self):
@@ -75,10 +84,12 @@ class Proxy:
         self.__main_loop()
 
     def __handle_main_auth(self):
+        mac = scapy.get_if_hwaddr(self.interface)
+
         auth_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         auth_sock.connect(AUTH_ADDR)
-        send_sock(auth_sock, f"{SERVICE_SECRET_CODE}proxy".encode())
-        print("sent", f"{SERVICE_SECRET_CODE}proxy".encode())
+        send_sock(auth_sock, f"{SERVICE_SECRET_CODE}proxy||{mac}".encode())
+        print("sent", f"{SERVICE_SECRET_CODE}proxy||{mac}".encode())
         while True:
             data, ok = recv(auth_sock)
 

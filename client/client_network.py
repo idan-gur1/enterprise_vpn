@@ -1,7 +1,10 @@
 import socket
+import sys
+import tkinter
 import winreg
 import pydivert
 import struct
+import scapy.all as scapy
 from scapy.all import Ether, IP, TCP, fragment, sendp
 from cryptography.fernet import Fernet
 from _thread import start_new_thread
@@ -9,13 +12,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
 
-# TODO - switch scapy sending to pcap
-
 
 INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                    r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
                                    0, winreg.KEY_ALL_ACCESS)
 MTU = 1480
+CLIENT_IP = "192.168.1.105"
+MAIN_AUTH_ADDR = "192.168.1.105", 55555
 
 
 def set_key(name, value):
@@ -110,12 +113,22 @@ def calc_checksum(data):
 
 class ClientNetwork:
 
-    def __int__(self, server_addr: tuple):
+    def __int__(self, server_addr: tuple = MAIN_AUTH_ADDR):
         self.__network_key: bytes = b''
         self.__vpn_clients: dict[str, str] = {}
         self.__run: bool = False
         self.__server_addr: tuple = server_addr
         self.__ftp_addr: str = ""
+        self.admin = False
+
+        try:
+            self.__interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == CLIENT_IP).network_name
+        except:
+            print("couldn't find the wanted adapter\nexiting...")
+            sys.exit(1)
+        # self.__raw_mac_addr = scapy.get_if_hwaddr(self.__interface)
+        # self.__raw_mac_addr: bytes = int(scapy.get_if_hwaddr(self.__interface).replace(":", ""), 16).to_bytes(6, "big")
+        self.__mac_addr: str = scapy.get_if_hwaddr(self.__interface)
 
         self.__private_key: rsa.RSAPrivateKey = rsa.generate_private_key(public_exponent=65537, key_size=1024)
         self.__public_key: rsa.RSAPublicKey = self.__private_key.public_key()
@@ -153,13 +166,13 @@ class ClientNetwork:
             self.close()
             return 1
 
-        if server_response == b"auth_bad":
+        if server_response == b"auth_bad" or b"bad" in server_response:
             return 2
 
         return 3
 
     def attempt_dual_auth(self, email: str, otp: str):
-        self.__send_to_server(f"dual_auth||{email}||{otp}".encode() + b"|||" + self.__public_key_bytes)
+        self.__send_to_server(f"dual_auth||{email}||{otp}||{self.__mac_addr}".encode() + b"|||" + self.__public_key_bytes)
 
         server_response, ok = self.__recv_from_server()
 
@@ -174,7 +187,14 @@ class ClientNetwork:
 
         str_part, network_key_encrypted = server_response.split(b"|||")
 
-        services = str_part.decode().split("||")[1]
+        services, clients, admin = str_part.decode().split("||")[1:]
+
+        if admin == "true":
+            self.admin = True
+
+        for client in clients.split("|"):
+            mac, ip = client.split(",")
+            self.__vpn_clients[ip] = mac
 
         services_data = {service_row.split(",")[0]: service_row.split(",")[1] for service_row in services.split("|")}
 
@@ -192,19 +212,172 @@ class ClientNetwork:
 
         return 3
 
+    def get_ftp_files(self):
+        ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        ftp_sock.connect((self.__ftp_addr, 4343))
+
+        self.__send_to_server(b"get_files")
+
+        files_str, ok = self.__recv_from_server()
+
+        if not ok or files_str == b"not_allowed":
+            return 1
+        ftp_sock.close()
+        files_str = files_str.decode()
+        if files_str == "none":
+            return []
+        return files_str.split("|")
+
+    def get_ftp_file(self, file_name: str):
+        ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        ftp_sock.connect((self.__ftp_addr, 4343))
+
+        self.__send_to_server(b"get|" + file_name.encode())
+
+        file_bytes, ok = self.__recv_from_server()
+
+        if not ok or file_bytes == b"not_allowed":
+            return 1
+        ftp_sock.close()
+
+        return file_bytes
+
+    def upload_ftp_file(self, file_name: str):
+
+        with open(file_name, "rb") as f:
+            file_bytes = f.read()
+
+        ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        ftp_sock.connect((self.__ftp_addr, 4343))
+
+        self.__send_to_server(b"upload|" + file_name.encode() + b"||||" + file_bytes)
+
+        file_ok, ok = self.__recv_from_server()
+
+        ftp_sock.close()
+
+        if not ok or file_ok == b"not_allowed":
+            return 1
+        return 3
+
+    def get_users(self):
+        self.__send_to_server("admin||users_status".encode())
+        users_str, ok = self.__recv_from_server()
+
+        if not ok:
+            return 1
+        users_str = users_str.decode()
+
+        users = []
+
+        for user_str in users_str.split("||"):
+            user_lst = user_str.split("|")
+            user = {
+                'email': user_lst[1],
+                'admin': user_lst[2],
+                'status': user_lst[3],
+                'ip': user_lst[4],
+                'proxy': user_lst[5],
+                'FTP': user_lst[6],
+            }
+            users.append(user)
+
+        return users
+
+    def set_admin_state(self, var: tkinter.IntVar, email: str):
+        self.__send_to_server(b"admin||change_admin_status||" + email.encode())
+
+        user_response, ok = self.__recv_from_server()
+
+        if not ok:
+            return 1
+
+        if user_response == b"bad" or user_response == b"user_connected":
+            return 2
+
+        return 3
+
+    def set_proxy_state(self, email: str):
+        self.__send_to_server(b"admin||change_proxy_status||" + email.encode())
+
+        user_response, ok = self.__recv_from_server()
+
+        if not ok:
+            return 1
+
+        if user_response == b"bad" or user_response == b"user_disconnected":
+            return 2
+
+        return 3
+
+    def get_proxy_rules(self):
+        self.__send_to_server("admin||view_proxy_rules".encode())
+        rules_str, ok = self.__recv_from_server()
+
+        if not ok:
+            return 1
+        rules_str = rules_str.decode()
+
+        if rules_str == "none":
+            return []
+
+        rules = []
+
+        for rule_str in rules_str.split("||"):
+            rule_lst = rule_str.split("|")
+            rule = {
+                'domain': rule_lst[0],
+                'ip': rule_lst[1]
+            }
+            rules.append(rule)
+
+        return rules
+
+    def add_proxy_rule(self, domain):
+        self.__send_to_server(b"admin||add_proxy_rule||" + domain.encode())
+
+        rule_response, ok = self.__recv_from_server()
+
+        if not ok:
+            return 1
+
+        if rule_response == b"bad":
+            return 2
+        elif rule_response == b"bad_request":
+            return 2
+        elif rule_response == b"server_down":
+            return 2
+        else:
+            return 3
+
+    def remove_proxy_rule(self, domain):
+        self.__send_to_server(b"admin||remove_proxy_rule||" + domain.encode())
+
+        rule_response, ok = self.__recv_from_server()
+
+        if not ok:
+            return 1
+
+        if rule_response == b"bad":
+            return 2
+        elif rule_response == b"bad_request":
+            return 2
+        else:
+            return 3
+
     def start_client_services(self):
         if self.__network_key == b'':
             return 1
 
         self.__run = True
 
-        start_new_thread(self.__encryption_handler, ())
         start_new_thread(self.__main_management_handler, ())
+        start_new_thread(self.__encryption_handler, ())
 
     def __encryption_handler(self):
         block = Fernet(self.__network_key)
 
-        with pydivert.WinDivert("ip and tcp and (ip.SrcAddr == 192.168.1.156 or ip.DstAddr == 192.168.1.156)") as w:
+        with pydivert.WinDivert("ip and (tcp or udp)") as w:
             buffer = {}
             for packet in w:
                 if not self.__run:
@@ -220,7 +393,7 @@ class ClientNetwork:
 
                         # Send the fragmented packets over the network
                         for part in fragmented_packets:
-                            sendp(part)
+                            sendp(part, iface=self.__interface)
 
                     elif packet.src_addr in self.__vpn_clients and packet.is_inbound:
                         if packet.ip.mf is True or packet.ip.frag_offset != 0:
@@ -252,7 +425,7 @@ class ClientNetwork:
                         w.send(packet)
                 else:
                     w.send(packet)
-                print("\n\n\n")
+                # print("\n\n\n")
 
     def __main_management_handler(self):
         while self.__run:
