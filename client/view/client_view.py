@@ -6,7 +6,6 @@ import customtkinter
 import re
 from PIL import Image, ImageTk
 from tkinter import filedialog
-from outer_client_network import ClientNetwork
 
 customtkinter.set_appearance_mode("dark")
 customtkinter.set_default_color_theme("blue")
@@ -19,7 +18,7 @@ class App(customtkinter.CTk):
     WIDTH = 1000
     HEIGHT = 600
 
-    def __init__(self, client: ClientNetwork, *args, **kwargs):
+    def __init__(self, client, *args, **kwargs):
         """
         setting up client graphical user interface
         :param args: customtkinter CTk args
@@ -714,7 +713,3 @@ class App(customtkinter.CTk):
 
     def start(self):
         self.mainloop()
-
-
-app = App(ClientNetwork())
-app.start()

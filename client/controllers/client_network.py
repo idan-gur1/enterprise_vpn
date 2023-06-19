@@ -18,9 +18,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                    r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
                                    0, winreg.KEY_ALL_ACCESS)
-MTU = 1480
-CLIENT_IP = "10.2.20.117"
-MAIN_AUTH_ADDR = "10.2.20.253", 12345
 
 
 def set_key(name, value):
@@ -150,7 +147,7 @@ def calc_checksum(data):
 
 class ClientNetwork:
 
-    def __init__(self, server_addr: tuple = MAIN_AUTH_ADDR):
+    def __init__(self, server_addr: tuple, client_ip, mtu=None, interface=None):
         print(1)
         self.__network_key: bytes = b''
         self.__vpn_clients: dict[str, str] = {}
@@ -161,7 +158,7 @@ class ClientNetwork:
         self.admin = False
 
         try:
-            self.__interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == CLIENT_IP).network_name
+            self.__interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == client_ip).network_name
         except:
             print("couldn't find the wanted adapter\nexiting...")
             sys.exit(1)

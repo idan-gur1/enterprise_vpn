@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.fernet import Fernet
 from urllib.parse import urlparse
 from .base_server import Server
-from .database import Database
+from managment_and_authentication.models.database import Database
 
 SERVICE_SECRET_CODE = b"code123-123"
 

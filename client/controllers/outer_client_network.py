@@ -20,10 +20,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                    r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
                                    0, winreg.KEY_ALL_ACCESS)
-MTU = 1480
-DIVERT_INTERFACE = 14, 0
-CLIENT_IP = "172.16.143.252"
-MAIN_AUTH_ADDR = "172.16.139.205", 44444
 
 
 def set_key(name, value):
@@ -153,7 +149,7 @@ def calc_checksum(data):
 
 class ClientNetwork:
 
-    def __init__(self, server_addr: tuple = MAIN_AUTH_ADDR):
+    def __init__(self, server_addr: tuple, client_ip, mtu, divert_interface):
         self.services_data = None
         print(1)
         self.__network_key: bytes = b''
@@ -165,9 +161,12 @@ class ClientNetwork:
         self.admin = False
         self.__packet_queue: queue.Queue[pydivert.Packet] = queue.Queue()
         self.__queue_semaphore = threading.Semaphore(1)
+        self.__client_ip: str = client_ip
+        self.__mtu: int = mtu
+        self.__divert_interface: tuple[int] = divert_interface
 
         try:
-            self.__interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == CLIENT_IP).network_name
+            self.__interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == client_ip).network_name
         except:
             print("couldn't find the wanted adapter\nexiting...")
             sys.exit(1)
@@ -489,7 +488,7 @@ class ClientNetwork:
 
                 packet.recalculate_checksums()
 
-                fragments = ip_fragmentation(packet.raw.tobytes(), MTU)
+                fragments = ip_fragmentation(packet.raw.tobytes(), self.__mtu)
 
                 for p_fragment in fragments:
                     self.__send_to_server(p_fragment)
@@ -553,8 +552,9 @@ class ClientNetwork:
                 self.close()
                 break
 
-            received_packet = pydivert.Packet(raw=data, interface=DIVERT_INTERFACE, direction=pydivert.Direction.INBOUND)
-            received_packet.dst_addr = CLIENT_IP
+            received_packet = pydivert.Packet(raw=data, interface=self.__divert_interface,
+                                              direction=pydivert.Direction.INBOUND)
+            received_packet.dst_addr = self.__client_ip
 
             received_packet.payload = received_packet.payload[:received_packet.ipv4.packet_len - 40]
 

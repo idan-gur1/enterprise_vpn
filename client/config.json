@@ -1,0 +1,8 @@
+{
+  "debug_connection": false,
+  "main_auth_ip": "10.2.20.253",
+  "main_auth_port": 12345,
+  "client_ip": "192.168.1.105",
+  "mtu": 1480,
+  "interface": 14
+}

@@ -4,12 +4,12 @@ import pyotp
 
 class Database:
 
-    def __init__(self):
+    def __init__(self, db_path='test.db'):
         """
         setting up the interface that communicates with the database
         """
-        self.dbPath = 'test.db'
-        self.con = lite.connect(self.dbPath)
+        self.db_path = db_path
+        self.con = lite.connect(self.db_path)
         # #### for debugging
         self.create_table_if_not_exists("users", (
             "user_id INTEGER PRIMARY KEY AUTOINCREMENT", "email TEXT", "password TEXT", "secret TEXT", "admin INTEGER"))
