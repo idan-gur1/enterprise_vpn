@@ -122,8 +122,8 @@ class Server:
                 # handling client request
                 else:
                     msg, success = self.__recv_from_socket(sock)
-
-                    if not success:
+                    print(msg, success)
+                    if not success or not msg:
                         print("disconnect", success, msg)
                         if sock in self.__clients:
                             self.__close_client(sock)
@@ -173,6 +173,7 @@ class Server:
                 continue
             if client in wlist:
                 try:
+                    print(str(len(data)).zfill(8).encode() + data)
                     client.send(str(len(data)).zfill(8).encode() + data)
                 except:
                     print("error")

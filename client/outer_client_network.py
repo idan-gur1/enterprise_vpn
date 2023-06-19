@@ -1,4 +1,5 @@
 import ipaddress
+import os
 import queue
 import socket
 import sys
@@ -21,8 +22,8 @@ INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                    0, winreg.KEY_ALL_ACCESS)
 MTU = 1480
 DIVERT_INTERFACE = 14, 0
-CLIENT_IP = "192.168.1.105"
-MAIN_AUTH_ADDR = "192.168.1.105", 55555
+CLIENT_IP = "172.16.143.252"
+MAIN_AUTH_ADDR = "172.16.139.205", 44444
 
 
 def set_key(name, value):
@@ -36,6 +37,41 @@ def encrypt(plain, fblock):
 
 def decrypt(cipher, fblock):
     return fblock.decrypt(cipher)
+
+
+def send_sock(sock, data):
+    sock.send(str(len(data)).zfill(8).encode() + data)
+
+
+def recv(sock):
+    """
+    function that receive data from socket by the wanted format
+    """
+    try:
+        msg_size = sock.recv(8)
+    except:
+        return b"recv error", False
+    if not msg_size:
+        return b"msg length error", False
+    try:
+        msg_size = int(msg_size)
+    except:  # not an integer
+        return b"msg length error", False
+
+    msg = b''
+    # this is a fail-safe -> if the recv not giving the msg in one time
+    while len(msg) < msg_size:
+        try:
+            msg_fragment = sock.recv(msg_size - len(msg))
+        except:
+            return b"recv error", False
+        if not msg_fragment:
+            return b"msg data is none", False
+        msg = msg + msg_fragment
+
+    # msg = msg.decode(errors="ignore")
+
+    return msg, True
 
 
 def ip_fragmentation(orig_packet, mtu):
@@ -117,7 +153,9 @@ def calc_checksum(data):
 
 class ClientNetwork:
 
-    def __int__(self, server_addr: tuple = MAIN_AUTH_ADDR):
+    def __init__(self, server_addr: tuple = MAIN_AUTH_ADDR):
+        self.services_data = None
+        print(1)
         self.__network_key: bytes = b''
         self.__inner_ip: str = ""
         self.__subnet: ipaddress.ip_network = None
@@ -154,7 +192,7 @@ class ClientNetwork:
             return True
 
     def close(self):
-        self.__client_socket.close()
+        # self.__client_socket.close()
         self.__run = False
         set_key("ProxyEnable", 0)
 
@@ -180,13 +218,15 @@ class ClientNetwork:
         return 3
 
     def attempt_dual_auth(self, email: str, otp: str):
-        self.__send_to_server(f"dual_auth||{email}||{otp}".encode() + b"|||" + self.__public_key_bytes)
+        self.__send_to_server(f"out_dual_auth||{email}||{otp}".encode() + b"|||" + self.__public_key_bytes)
 
         server_response, ok = self.__recv_from_server()
 
         if not ok:
             self.close()
             return 1
+
+        print(server_response)
 
         if server_response == b"dual_auth_bad":
             return 2
@@ -206,7 +246,7 @@ class ClientNetwork:
         #     self.__vpn_clients[ip] = mac
 
         services_data = {service_row.split(",")[0]: service_row.split(",")[1] for service_row in services.split("|")}
-
+        self.services_data = services_data
         self.__network_key = self.__private_key.decrypt(network_key_encrypted,
                                                         padding.OAEP(
                                                             mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -215,9 +255,10 @@ class ClientNetwork:
 
         self.__ftp_addr = services_data.get("ftp", "x")
 
-        set_key("ProxyEnable", 1)
+        # set_key("ProxyEnable", 1)
         # set_key("ProxyOverride", u"*.local;<local>")
-        set_key("ProxyServer", str(services_data['proxy']) + ":8080")
+        # set_key("ProxyServer", str(services_data['proxy']) + ":8080")
+        print(str(services_data['proxy']))
 
         self.__send_to_server(self.__mac_addr.encode())
 
@@ -243,11 +284,14 @@ class ClientNetwork:
 
     def get_ftp_files(self):
         ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ftp_sock.connect((self.__ftp_addr, 4343))
+        print((self.__ftp_addr, 4343))
+        ftp_sock.connect((self.__ftp_addr, 44333))
 
-        self.__send_to_server(b"get_files")
+        # self.__send_to_server(b"get_files")
+        send_sock(ftp_sock, b"get_files")
 
-        files_str, ok = self.__recv_from_server()
+        # files_str, ok = self.__recv_from_server()
+        files_str, ok = recv(ftp_sock)
 
         if not ok or files_str == b"not_allowed":
             return 1
@@ -259,11 +303,13 @@ class ClientNetwork:
 
     def get_ftp_file(self, file_name: str):
         ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ftp_sock.connect((self.__ftp_addr, 4343))
+        ftp_sock.connect((self.__ftp_addr, 44333))
 
-        self.__send_to_server(b"get|" + file_name.encode())
+        # self.__send_to_server(b"get|" + file_name.encode())
+        send_sock(ftp_sock, b"get|" + file_name.encode())
 
-        file_bytes, ok = self.__recv_from_server()
+        # file_bytes, ok = self.__recv_from_server()
+        file_bytes, ok = recv(ftp_sock)
 
         if not ok or file_bytes == b"not_allowed":
             return 1
@@ -272,16 +318,20 @@ class ClientNetwork:
         return file_bytes
 
     def upload_ftp_file(self, file_name: str):
-
         with open(file_name, "rb") as f:
             file_bytes = f.read()
 
+        base_file_name = os.path.basename(file_name)
+
         ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ftp_sock.connect((self.__ftp_addr, 4343))
+        ftp_sock.connect((self.__ftp_addr, 44333))
 
-        self.__send_to_server(b"upload|" + file_name.encode() + b"||||" + file_bytes)
+        # self.__send_to_server(b"upload|" + file_name.encode() + b"||||" + file_bytes)
+        # send_sock(ftp_sock, b"upload|" + file_name.encode() + b"||||" + file_bytes)
+        send_sock(ftp_sock, b"upload|" + base_file_name.encode() + b"||||" + file_bytes)
 
-        file_ok, ok = self.__recv_from_server()
+        # file_ok, ok = self.__recv_from_server()
+        file_ok, ok = recv(ftp_sock)
 
         ftp_sock.close()
 
@@ -406,7 +456,7 @@ class ClientNetwork:
     def __encryption_handler(self):
         block = Fernet(self.__network_key)
 
-        with pydivert.WinDivert("outbound and ip and (tcp or udp)") as w:
+        with pydivert.WinDivert("outbound and ip and tcp") as w:
             buffer = {}
             for packet in w:
                 if not self.__run:
@@ -420,13 +470,13 @@ class ClientNetwork:
                 else:
                     try:
                         received_packet.payload = decrypt(received_packet.payload, block)
-                    except:
-                        pass
+                    except Exception as e:
+                        print("outer msg decrypt error", e)
 
                     try:
                         w.send(received_packet)
-                    except:
-                        pass
+                    except Exception as e:
+                        print("outer msg error", e)
 
                 if ipaddress.ip_address(packet.dst_addr) not in self.__subnet:
                     w.send(packet)
@@ -434,7 +484,7 @@ class ClientNetwork:
 
                 packet.src_addr = self.__inner_ip
 
-                if len(packet.payload) > 0:
+                if len(packet.payload) > 0 and packet.dst_addr != self.services_data['proxy'] and packet.dst_addr != self.services_data['ftp']:
                     packet.payload = encrypt(packet.payload, block)
 
                 packet.recalculate_checksums()

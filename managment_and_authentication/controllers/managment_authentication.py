@@ -9,19 +9,19 @@ from urllib.parse import urlparse
 from .base_server import Server
 from .database import Database
 
-SERVICE_SECRET_CODE = b"code123-123"  # temp
+SERVICE_SECRET_CODE = b"code123-123"
 
 
 def is_valid_ipv4_address(address):
     try:
         socket.inet_pton(socket.AF_INET, address)
-    except AttributeError:  # no inet_pton here, sorry
+    except AttributeError:
         try:
             socket.inet_aton(address)
         except socket.error:
             return False
         return address.count('.') == 3
-    except socket.error:  # not a valid address
+    except socket.error:
         return False
 
     return True
@@ -181,17 +181,20 @@ class AuthenticationManagement(Server):
                 self.send_message(client_sock, b"ok")
 
     def _handle_data(self, client_sock: socket.socket, msg: bytes):
+        print(msg)
         if msg.startswith(SERVICE_SECRET_CODE):
             name, mac = msg[len(SERVICE_SECRET_CODE):].split(b"||")
             name = name.decode()
+            mac = mac.decode()
             host = client_sock.getpeername()[0]
             self.services[name] = client_sock
 
             if name == "outer_user_manager":
                 self.send_message(client_sock, self.network_key)
             else:
-                self.send_message(self.services["outer_user_manager"], b"new" +
-                                  int(mac.replace(":", ""), 16).to_bytes(6, "big") + socket.inet_aton(host))
+                if "outer_user_manager" in self.services:
+                    self.send_message(self.services["outer_user_manager"], b"new" +
+                                      int(mac.replace(":", ""), 16).to_bytes(6, "big") + socket.inet_aton(host))
 
             print(f"added {name}")
 
@@ -268,7 +271,9 @@ class AuthenticationManagement(Server):
             self.send_message(client_sock, b"ok")
 
         elif msg == b"client_disconnected":
+            print(1)
             if client_sock in self.services.values(): return
+            if client_sock not in self.connected_client_ips: return
             host = self.connected_client_ips[client_sock]
 
             if host in self.connected_client_hwaddr:
@@ -328,6 +333,7 @@ class AuthenticationManagement(Server):
 
                 if self.database.check_if_admin(email):
                     admin = "true"
+                    self.connected_admins.append(client_sock)
                 else:
                     admin = "false"
 
@@ -338,7 +344,9 @@ class AuthenticationManagement(Server):
                     algorithm=hashes.SHA256(),
                     label=None))
 
-                clients_msg = "|".join(f"{c_mac},{c_ip}" for c_mac, c_ip in self.connected_client_hwaddr.items())
+                clients_msg = "|".join(f"{c_mac},{c_ip}" for c_ip, c_mac in self.connected_client_hwaddr.items())
+                if clients_msg == "":
+                    clients_msg = "none"
 
                 self.send_message(client_sock, b"dual_auth_ok||" + services_msg.encode() + b"||" + clients_msg.encode()
                                   +b"||" + admin.encode() + b"|||" + encrypted_key)

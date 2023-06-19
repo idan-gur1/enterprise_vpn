@@ -1,17 +1,17 @@
 import os
+import time
 import tkinter
 import tkinter.messagebox as messagebox
 import customtkinter
 import re
 from PIL import Image, ImageTk
 from tkinter import filedialog
-from client_network import ClientNetwork
+from outer_client_network import ClientNetwork
 
 customtkinter.set_appearance_mode("dark")
 customtkinter.set_default_color_theme("blue")
 
 email_re = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}')
-EARTH_RADIUS = 6.38e6
 
 
 class App(customtkinter.CTk):
@@ -35,7 +35,7 @@ class App(customtkinter.CTk):
 
         self.client = client
 
-        client.connect()
+        self.client.connect()
 
         self.logged_in = False
         self.admin = False
@@ -295,7 +295,7 @@ class App(customtkinter.CTk):
 
         all_rooms_btn = customtkinter.CTkButton(master=main_frame,
                                                 text="upload file",
-                                                # command=self.all_rooms,
+                                                command=self.handle_upload_file,
                                                 width=200, height=50,
                                                 font=customtkinter.CTkFont(size=18),
                                                 border_width=0,
@@ -327,7 +327,7 @@ class App(customtkinter.CTk):
 
         file_bytes = self.client.get_ftp_file(filename)
 
-        with open(os.path.join("ftp", filename), "wb") as downloaded_file:
+        with open(os.path.join("downloaded_files", filename), "wb") as downloaded_file:
             downloaded_file.write(file_bytes)
 
     def handle_upload_file(self):
@@ -562,6 +562,11 @@ class App(customtkinter.CTk):
 
         users = self.client.get_proxy_rules()
 
+        if users == 1:
+            print("an error while communicating with the server")
+
+        print(users)
+
         for row, user in enumerate(users):
             customtkinter.CTkLabel(master=table_frame,
                                    text=f"{user['domain']}",
@@ -660,7 +665,7 @@ class App(customtkinter.CTk):
                                                  corner_radius=8)
             offers_btn.grid(pady=10, padx=20, row=3, column=0, sticky=tkinter.EW)
 
-            if True:
+            if self.admin:
                 admin_btn = customtkinter.CTkButton(master=frame_left,
                                                     text="admin panel",
                                                     command=self.admin_panel,
@@ -691,6 +696,7 @@ class App(customtkinter.CTk):
 
         self.logged_in = False
         self.client.close()
+        time.sleep(3)
         self.destroy()
         self.quit()
 
@@ -710,5 +716,5 @@ class App(customtkinter.CTk):
         self.mainloop()
 
 
-app = App(None)
+app = App(ClientNetwork())
 app.start()

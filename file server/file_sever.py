@@ -5,12 +5,12 @@ import sys
 import scapy.all as scapy
 from _thread import start_new_thread
 
-AUTH_ADDR = "192.168.1.70", 55555
-FTP_IP = "192.168.1.106"
+AUTH_ADDR = "10.2.20.253", 12345
+FTP_IP = "10.2.20.244"
 SERVICE_SECRET_CODE = "code123-123"
 
 
-def recv(sock) -> tuple[bytes, bool]:
+def recv(sock):
     """
     function that receive data from socket by the wanted format
     """
@@ -49,7 +49,7 @@ def send_sock(sock, data):
     return True
 
 class FileServer:
-    def __init__(self, ip="0.0.0.0", port=8080):
+    def __init__(self, ip="0.0.0.0", port=44333):
         self.addr = ip, port
 
         self.allowed_clients = []
@@ -69,7 +69,7 @@ class FileServer:
         :return: None
         """
         self.__server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.__server_socket.bind(("0.0.0.0", 8080))
+        self.__server_socket.bind(self.addr)
 
     def start(self):
         """
@@ -117,6 +117,7 @@ class FileServer:
                 client, address = self.__server_socket.accept()
             except KeyboardInterrupt:
                 break
+            print(address)
 
             start_new_thread(self.handle_client_request, (client, address))
 
@@ -130,6 +131,7 @@ class FileServer:
             return
 
         request, ok = recv(client)
+        print(request)
 
         if not ok:
             print("couldn't recv data from client")
@@ -140,7 +142,7 @@ class FileServer:
             for filename in os.listdir("files"):
                 file_path = os.path.join("files", filename)
                 if os.path.isfile(file_path):
-                    files.append(file_path)
+                    files.append(filename)
             msg = "|".join(files)
             send_sock(client, msg.encode())
         elif request.startswith(b"get|"):
@@ -152,10 +154,12 @@ class FileServer:
             send_sock(client, file_bytes)
         elif request.startswith(b"upload|"):
             filename, file_bytes = request[len(b"upload|"):].split(b"||||")
+            print(filename)
             filename = filename.decode()
 
             with open(os.path.join("files", filename), "wb") as f:
                 f.write(file_bytes)
+            send_sock(client, b"ok")
 
 
 if __name__ == '__main__':

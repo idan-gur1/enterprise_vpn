@@ -1,3 +1,4 @@
+import os
 import socket
 import sys
 import tkinter
@@ -5,7 +6,8 @@ import winreg
 import pydivert
 import struct
 import scapy.all as scapy
-from scapy.all import Ether, IP, TCP, fragment, sendp
+from queue import Queue, Empty
+from scapy.all import Ether, IP, TCP, fragment, sendp, send
 from cryptography.fernet import Fernet
 from _thread import start_new_thread
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -17,8 +19,8 @@ INTERNET_SETTINGS = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                    r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
                                    0, winreg.KEY_ALL_ACCESS)
 MTU = 1480
-CLIENT_IP = "192.168.1.105"
-MAIN_AUTH_ADDR = "192.168.1.105", 55555
+CLIENT_IP = "10.2.20.117"
+MAIN_AUTH_ADDR = "10.2.20.253", 12345
 
 
 def set_key(name, value):
@@ -32,6 +34,41 @@ def encrypt(plain, fblock):
 
 def decrypt(cipher, fblock):
     return fblock.decrypt(cipher)
+
+
+def send_sock(sock, data):
+    sock.send(str(len(data)).zfill(8).encode() + data)
+
+
+def recv(sock):
+    """
+    function that receive data from socket by the wanted format
+    """
+    try:
+        msg_size = sock.recv(8)
+    except:
+        return b"recv error", False
+    if not msg_size:
+        return b"msg length error", False
+    try:
+        msg_size = int(msg_size)
+    except:  # not an integer
+        return b"msg length error", False
+
+    msg = b''
+    # this is a fail-safe -> if the recv not giving the msg in one time
+    while len(msg) < msg_size:
+        try:
+            msg_fragment = sock.recv(msg_size - len(msg))
+        except:
+            return b"recv error", False
+        if not msg_fragment:
+            return b"msg data is none", False
+        msg = msg + msg_fragment
+
+    # msg = msg.decode(errors="ignore")
+
+    return msg, True
 
 
 def ip_fragmentation(orig_packet, mtu):
@@ -113,11 +150,13 @@ def calc_checksum(data):
 
 class ClientNetwork:
 
-    def __int__(self, server_addr: tuple = MAIN_AUTH_ADDR):
+    def __init__(self, server_addr: tuple = MAIN_AUTH_ADDR):
+        print(1)
         self.__network_key: bytes = b''
         self.__vpn_clients: dict[str, str] = {}
         self.__run: bool = False
         self.__server_addr: tuple = server_addr
+        self.__recv_queue = Queue()
         self.__ftp_addr: str = ""
         self.admin = False
 
@@ -136,17 +175,20 @@ class ClientNetwork:
                                                                         format=serialization.PublicFormat.SubjectPublicKeyInfo)
 
         self.__client_socket: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print(2)
 
     def connect(self):
         try:
             self.__client_socket.connect(self.__server_addr)
+            print(3)
         except:
             return False
         else:
             return True
 
     def close(self):
-        self.__client_socket.close()
+        # self.__client_socket.close()
+        # send(IP(dst=MAIN_AUTH_ADDR[0]) / TCP(dport=MAIN_AUTH_ADDR[1], flags="R"))
         self.__run = False
         set_key("ProxyEnable", 0)
 
@@ -184,7 +226,7 @@ class ClientNetwork:
             return 2
         elif server_response == b"bad":
             return 4
-
+        print(server_response)
         str_part, network_key_encrypted = server_response.split(b"|||")
 
         services, clients, admin = str_part.decode().split("||")[1:]
@@ -192,9 +234,11 @@ class ClientNetwork:
         if admin == "true":
             self.admin = True
 
-        for client in clients.split("|"):
-            mac, ip = client.split(",")
-            self.__vpn_clients[ip] = mac
+        if clients != "none":
+            for client in clients.split("|"):
+                mac, ip = client.split(",")
+                self.__vpn_clients[ip] = mac
+            print(self.__vpn_clients)
 
         services_data = {service_row.split(",")[0]: service_row.split(",")[1] for service_row in services.split("|")}
 
@@ -214,11 +258,14 @@ class ClientNetwork:
 
     def get_ftp_files(self):
         ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ftp_sock.connect((self.__ftp_addr, 4343))
+        print((self.__ftp_addr, 4343))
+        ftp_sock.connect((self.__ftp_addr, 44333))
 
-        self.__send_to_server(b"get_files")
+        # self.__send_to_server(b"get_files")
+        send_sock(ftp_sock, b"get_files")
 
-        files_str, ok = self.__recv_from_server()
+        # files_str, ok = self.__recv_from_server()
+        files_str, ok = recv(ftp_sock)
 
         if not ok or files_str == b"not_allowed":
             return 1
@@ -230,11 +277,13 @@ class ClientNetwork:
 
     def get_ftp_file(self, file_name: str):
         ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ftp_sock.connect((self.__ftp_addr, 4343))
+        ftp_sock.connect((self.__ftp_addr, 44333))
 
-        self.__send_to_server(b"get|" + file_name.encode())
+        # self.__send_to_server(b"get|" + file_name.encode())
+        send_sock(ftp_sock, b"get|" + file_name.encode())
 
-        file_bytes, ok = self.__recv_from_server()
+        # file_bytes, ok = self.__recv_from_server()
+        file_bytes, ok = recv(ftp_sock)
 
         if not ok or file_bytes == b"not_allowed":
             return 1
@@ -247,12 +296,17 @@ class ClientNetwork:
         with open(file_name, "rb") as f:
             file_bytes = f.read()
 
+        base_file_name = os.path.basename(file_name)
+
         ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ftp_sock.connect((self.__ftp_addr, 4343))
+        ftp_sock.connect((self.__ftp_addr, 44333))
 
-        self.__send_to_server(b"upload|" + file_name.encode() + b"||||" + file_bytes)
+        # self.__send_to_server(b"upload|" + file_name.encode() + b"||||" + file_bytes)
+        # send_sock(ftp_sock, b"upload|" + file_name.encode() + b"||||" + file_bytes)
+        send_sock(ftp_sock, b"upload|" + base_file_name.encode() + b"||||" + file_bytes)
 
-        file_ok, ok = self.__recv_from_server()
+        # file_ok, ok = self.__recv_from_server()
+        file_ok, ok = recv(ftp_sock)
 
         ftp_sock.close()
 
@@ -262,9 +316,13 @@ class ClientNetwork:
 
     def get_users(self):
         self.__send_to_server("admin||users_status".encode())
-        users_str, ok = self.__recv_from_server()
-
-        if not ok:
+        # users_str, ok = self.__recv_from_server()
+        #
+        # if not ok:
+        #     return 1
+        try:
+            users_str = self.__recv_queue.get(timeout=6)
+        except Empty:
             return 1
         users_str = users_str.decode()
 
@@ -287,9 +345,13 @@ class ClientNetwork:
     def set_admin_state(self, var: tkinter.IntVar, email: str):
         self.__send_to_server(b"admin||change_admin_status||" + email.encode())
 
-        user_response, ok = self.__recv_from_server()
-
-        if not ok:
+        # user_response, ok = self.__recv_from_server()
+        #
+        # if not ok:
+        #     return 1
+        try:
+            user_response = self.__recv_queue.get(timeout=6)
+        except Empty:
             return 1
 
         if user_response == b"bad" or user_response == b"user_connected":
@@ -300,9 +362,13 @@ class ClientNetwork:
     def set_proxy_state(self, email: str):
         self.__send_to_server(b"admin||change_proxy_status||" + email.encode())
 
-        user_response, ok = self.__recv_from_server()
-
-        if not ok:
+        # user_response, ok = self.__recv_from_server()
+        #
+        # if not ok:
+        #     return 1
+        try:
+            user_response = self.__recv_queue.get(timeout=6)
+        except Empty:
             return 1
 
         if user_response == b"bad" or user_response == b"user_disconnected":
@@ -312,9 +378,11 @@ class ClientNetwork:
 
     def get_proxy_rules(self):
         self.__send_to_server("admin||view_proxy_rules".encode())
-        rules_str, ok = self.__recv_from_server()
+        # rules_str, ok = self.__recv_from_server()
 
-        if not ok:
+        try:
+            rules_str = self.__recv_queue.get(timeout=6)
+        except Empty:
             return 1
         rules_str = rules_str.decode()
 
@@ -336,9 +404,9 @@ class ClientNetwork:
     def add_proxy_rule(self, domain):
         self.__send_to_server(b"admin||add_proxy_rule||" + domain.encode())
 
-        rule_response, ok = self.__recv_from_server()
-
-        if not ok:
+        try:
+            rule_response = self.__recv_queue.get(timeout=6)
+        except Empty:
             return 1
 
         if rule_response == b"bad":
@@ -353,9 +421,9 @@ class ClientNetwork:
     def remove_proxy_rule(self, domain):
         self.__send_to_server(b"admin||remove_proxy_rule||" + domain.encode())
 
-        rule_response, ok = self.__recv_from_server()
-
-        if not ok:
+        try:
+            rule_response = self.__recv_queue.get(timeout=6)
+        except Empty:
             return 1
 
         if rule_response == b"bad":
@@ -377,13 +445,18 @@ class ClientNetwork:
     def __encryption_handler(self):
         block = Fernet(self.__network_key)
 
-        with pydivert.WinDivert("ip and (tcp or udp)") as w:
+        with pydivert.WinDivert("ip and tcp") as w:
             buffer = {}
             for packet in w:
                 if not self.__run:
                     break
+                if not (packet.dst_addr in self.__vpn_clients or packet.src_addr in self.__vpn_clients):
+                    w.send(packet)
+                    continue
+
                 if len(packet.payload) > 0:
                     if packet.dst_addr in self.__vpn_clients and packet.is_outbound:
+                        print(bytes(packet.raw))
                         packet.payload = encrypt(packet.payload, block)
                         # original_packet = Ether(dst="f8:59:71:34:a7:65") / IP(packet.raw.tobytes())
                         original_packet = Ether(dst=self.__vpn_clients[packet.dst_addr]) / IP(packet.raw.tobytes())
@@ -396,6 +469,7 @@ class ClientNetwork:
                             sendp(part, iface=self.__interface)
 
                     elif packet.src_addr in self.__vpn_clients and packet.is_inbound:
+                        print(bytes(packet.raw))
                         if packet.ip.mf is True or packet.ip.frag_offset != 0:
                             # print("got a fragment")
                             packet_id = (packet.ip.src_addr, packet.ip.dst_addr, packet.ip.ident)
@@ -413,11 +487,12 @@ class ClientNetwork:
                                 continue
                         else:
                             assembled_packet = packet
+                            print(assembled_packet)
 
                         try:
                             assembled_packet.payload = decrypt(assembled_packet.payload, block)
-                        except:
-                            pass
+                        except Exception as e:
+                            print("WHAT?", e)
 
                         w.send(assembled_packet)
 
@@ -436,11 +511,13 @@ class ClientNetwork:
                 break
             split_data: list[str] = server_response.decode(errors="ignore").split("||")
             if len(split_data) != 3 or split_data[0] != "user":
+                self.__recv_queue.put(server_response)
                 continue
-
+            print(split_data)
             mac, ip = split_data[1:]
 
             self.__vpn_clients[ip] = mac
+            print(self.__vpn_clients)
 
     def __send_to_server(self, data: bytes):
         self.__client_socket.send(str(len(data)).zfill(8).encode() + data)

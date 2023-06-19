@@ -15,6 +15,7 @@ class Database:
             "user_id INTEGER PRIMARY KEY AUTOINCREMENT", "email TEXT", "password TEXT", "secret TEXT", "admin INTEGER"))
         print(self.add_user("test@test.com", "asdasdasd", True))
         print(self.add_user("test2@test.com", "asdasdasd"))
+        print(self.add_user("test3@test.com", "asdasdasd"))
         print(self.get_all_users())
         #####
 

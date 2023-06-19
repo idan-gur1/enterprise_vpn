@@ -5,9 +5,9 @@ import scapy.all as scapy
 from _thread import start_new_thread
 from logger import Logger
 
-AUTH_ADDR = "192.168.1.70", 55555
+AUTH_ADDR = "10.2.20.253", 12345
 SERVICE_SECRET_CODE = "code123-123"
-PROXY_IP = "192.168.1.106"
+PROXY_IP = "10.2.20.136"
 
 
 def recv(sock):
@@ -160,9 +160,11 @@ class Proxy:
         http_method = request.split(b" ")[0]
 
         if http_method == b'CONNECT':
-            start_new_thread(self.handle_https, (client, address, request))
+            #start_new_thread(self.handle_https, (client, address, request))
+            self.handle_https(client, address, request)
         else:
-            start_new_thread(self.handle_http, (client, address, request))
+            #start_new_thread(self.handle_http, (client, address, request))
+            self.handle_http(client, address, request)
 
     def handle_https(self, client_sock, client_address, connect_request):
         """

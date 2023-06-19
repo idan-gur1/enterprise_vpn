@@ -8,8 +8,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes  # , serialization
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
-MAIN_AUTH_ADDR = "172.16.163.49", 55555
-SERVER_IP = "192.168.1.106"
+MAIN_AUTH_ADDR = "10.2.20.253", 12345
+SERVER_IP = "10.2.20.56"
 
 def send_sock(sock, data):
     sock.send(str(len(data)).zfill(8).encode() + data)
@@ -125,7 +125,7 @@ class OuterUserManager:
         main_auth_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         main_auth_socket.connect(MAIN_AUTH_ADDR)
 
-        send_sock(main_auth_socket, f"{self.__admin_code}outer_user_manager".encode())
+        send_sock(main_auth_socket, f"{self.__admin_code}outer_user_manager||random".encode())
 
         key, ok = recv(main_auth_socket)
 
@@ -145,10 +145,12 @@ class OuterUserManager:
             # print(data)
             if data.startswith(b"new"):
                 # self.allowed_clients.append(data[len(b"new"):])
+                print(data)
                 usr = data[len(b"new"):]
                 mac, ip = usr[:6], usr[6:10]
                 self.__vpn_clients[ip] = mac
             elif data.startswith(b"left"):
+                print(data)
                 ip = data[len(b"left"):]
                 if ip in self.__vpn_clients:
                     del self.__vpn_clients[ip]
