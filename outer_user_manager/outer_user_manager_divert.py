@@ -1,3 +1,4 @@
+import argparse
 import socket
 import sys
 import pcap
@@ -8,8 +9,6 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes  # , serialization
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
-MAIN_AUTH_ADDR = "10.2.20.253", 12345
-SERVER_IP = "10.2.20.56"
 
 def send_sock(sock, data):
     sock.send(str(len(data)).zfill(8).encode() + data)
@@ -50,14 +49,14 @@ class OuterUserManager:
 
     DEBUG = False
 
-    def __init__(self, admin_code="code123-123", ip="0.0.0.0", port=44444):
+    def __init__(self, main_auth_addr, admin_code="code123-123", ip="0.0.0.0", port=44444):
         self.__admin_code: str = admin_code
         self.__addr: tuple[str, int] = ip, port
+        self.__main_auth_addr = main_auth_addr
         try:
             self.__interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == ip).network_name
         except:
-            print("couldn't find the wanted adapter\nexiting...")
-            sys.exit(1)
+            raise ValueError("Please Enter a valid IP address of this Host")
         # self.__raw_mac_addr = scapy.get_if_hwaddr(self.__interface)
         self.__raw_mac_addr: bytes = int(scapy.get_if_hwaddr(self.__interface).replace(":", ""), 16).to_bytes(6, "big")
         self.__run = False
@@ -123,7 +122,7 @@ class OuterUserManager:
 
     def __main_auth_handler(self):
         main_auth_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        main_auth_socket.connect(MAIN_AUTH_ADDR)
+        main_auth_socket.connect(self.__main_auth_addr)
 
         send_sock(main_auth_socket, f"{self.__admin_code}outer_user_manager||random".encode())
 
@@ -163,7 +162,7 @@ class OuterUserManager:
 
     def __handle_client(self, client: socket.socket):
         main_auth = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        main_auth.connect(MAIN_AUTH_ADDR)
+        main_auth.connect(self.__main_auth_addr)
 
         while True:
             first_auth, ok = recv(client)
@@ -323,5 +322,23 @@ class OuterUserManager:
 
 
 if __name__ == '__main__':
-    server = OuterUserManager(ip=SERVER_IP)
+    parser = argparse.ArgumentParser(description='Example script with argparse')
+
+    parser.add_argument('--bind', dest="ip", metavar='ip', type=str, default='0.0.0.0',
+                        help='ip address for the server to bind (default: 0.0.0.0)')
+    parser.add_argument('--port', dest="port", metavar='port', type=int, default=8080,
+                        help='Port number the server will run on (default: 12345)')
+    parser.add_argument("address", dest="address", nargs="*")
+
+    args = parser.parse_args()
+
+    try:
+        main_auth_address = args.address[0].split(":")
+        main_auth_address = main_auth_address[0], int(main_auth_address[1])
+    except:
+        raise ValueError("Please enter a valid management server address.\n Usage: python " +
+                         "outer_user_manager_divert.py --bind <IP_ADDRESS> --port <PORT_NUMBER> " +
+                         "<MANAGEMENT_SERVER_IP_ADDRESS>:<MANAGEMENT_SERVER_PORT_NUMBER>")
+
+    server = OuterUserManager(main_auth_address, ip=args.ip, port=args.port)
     server.start()

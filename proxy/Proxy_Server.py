@@ -1,13 +1,11 @@
+import argparse
 import socket
-import sys
 
 import scapy.all as scapy
 from _thread import start_new_thread
 from logger import Logger
 
-AUTH_ADDR = "10.2.20.253", 12345
 SERVICE_SECRET_CODE = "code123-123"
-PROXY_IP = "10.2.20.136"
 
 
 def recv(sock):
@@ -46,8 +44,9 @@ def send_sock(sock, data):
 
 
 class Proxy:
-    def __init__(self, ip="0.0.0.0", port=8080):
+    def __init__(self, main_auth_addr, ip="0.0.0.0", port=8080):
         self.addr = ip, port
+        self.main_auth_addr = main_auth_addr
 
         self.web_servers = []
         self.__base_buffer = 4096
@@ -57,10 +56,9 @@ class Proxy:
         self.banned_servers = []
 
         try:
-            self.interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == PROXY_IP).network_name
+            self.interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == ip).network_name
         except:
-            print("couldn't find the wanted adapter\nexiting...")
-            sys.exit(1)
+            raise ValueError("Please Enter a valid IP address of this Host")
 
         self.__setup_socket()
 
@@ -87,7 +85,7 @@ class Proxy:
         mac = scapy.get_if_hwaddr(self.interface)
 
         auth_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        auth_sock.connect(AUTH_ADDR)
+        auth_sock.connect(self.main_auth_addr)
         send_sock(auth_sock, f"{SERVICE_SECRET_CODE}proxy||{mac}".encode())
         print("sent", f"{SERVICE_SECRET_CODE}proxy||{mac}".encode())
         while True:
@@ -314,5 +312,22 @@ class Proxy:
 
 
 if __name__ == '__main__':
-    proxy = Proxy()
+    parser = argparse.ArgumentParser(description='Example script with argparse')
+
+    parser.add_argument('--bind', dest="ip", metavar='ip', type=str, default='0.0.0.0',
+                        help='ip address for the server to bind (default: 0.0.0.0)')
+
+    parser.add_argument("address", dest="address", nargs="*")
+
+    args = parser.parse_args()
+
+    try:
+        main_auth_address = args.address[0].split(":")
+        main_auth_address = main_auth_address[0], int(main_auth_address[1])
+    except:
+        raise ValueError("Please enter a valid management server address.\n Usage: python " +
+                         "outer_user_manager_divert.py --bind <IP_ADDRESS> --port <PORT_NUMBER> " +
+                         "<MANAGEMENT_SERVER_IP_ADDRESS>:<MANAGEMENT_SERVER_PORT_NUMBER>")
+
+    proxy = Proxy(main_auth_address, ip=args.ip)
     proxy.start()

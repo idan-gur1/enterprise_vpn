@@ -1,12 +1,10 @@
+import argparse
 import os
 import socket
-import sys
 
 import scapy.all as scapy
 from _thread import start_new_thread
 
-AUTH_ADDR = "10.2.20.253", 12345
-FTP_IP = "10.2.20.244"
 SERVICE_SECRET_CODE = "code123-123"
 
 
@@ -48,18 +46,19 @@ def send_sock(sock, data):
         return False
     return True
 
+
 class FileServer:
-    def __init__(self, ip="0.0.0.0", port=44333):
+    def __init__(self, main_auth_addr, ip="0.0.0.0", port=44333):
         self.addr = ip, port
+        self.main_auth_addr = main_auth_addr
 
         self.allowed_clients = []
         self.banned_servers = []
 
         try:
-            self.interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == FTP_IP).network_name
+            self.interface: str = next(i for i in scapy.get_working_ifaces() if i.ip == ip).network_name
         except:
-            print("couldn't find the wanted adapter\nexiting...")
-            sys.exit(1)
+            raise ValueError("Please Enter a valid IP address of this Host")
 
         self.__setup_socket()
 
@@ -86,7 +85,7 @@ class FileServer:
         mac = scapy.get_if_hwaddr(self.interface)
 
         auth_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        auth_sock.connect(AUTH_ADDR)
+        auth_sock.connect(self.main_auth_addr)
         send_sock(auth_sock, f"{SERVICE_SECRET_CODE}ftp||{mac}".encode())
         print("sent", f"{SERVICE_SECRET_CODE}ftp||{mac}".encode())
         while True:
@@ -163,5 +162,22 @@ class FileServer:
 
 
 if __name__ == '__main__':
-    file_server = FileServer()
+    parser = argparse.ArgumentParser(description='Example script with argparse')
+
+    parser.add_argument('--bind', dest="ip", metavar='ip', type=str, default='0.0.0.0',
+                        help='ip address for the server to bind (default: 0.0.0.0)')
+
+    parser.add_argument("address", dest="address", nargs="*")
+
+    args = parser.parse_args()
+
+    try:
+        main_auth_address = args.address[0].split(":")
+        main_auth_address = main_auth_address[0], int(main_auth_address[1])
+    except:
+        raise ValueError("Please enter a valid management server address.\n Usage: python " +
+                         "outer_user_manager_divert.py --bind <IP_ADDRESS> --port <PORT_NUMBER> " +
+                         "<MANAGEMENT_SERVER_IP_ADDRESS>:<MANAGEMENT_SERVER_PORT_NUMBER>")
+
+    file_server = FileServer(main_auth_address, ip=args.ip)
     file_server.start()
