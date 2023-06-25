@@ -22,11 +22,11 @@ To get started with the  VPN, follow the steps below:
 
 2. **Management and Authentication Server Setup:** start the management server by navigating to the management_and_authentication folder and executing the following command in the terminal: <br> `python authentication_main.py --bind <IP_ADDRESS> --port <PORT_NUMBER>` <br> once activated the server prints the initial admin credentials.
 
-3. **Remote Access Server Setup:** start the remote access server by navigating to the outer_user_manager folder and executing the following command in the terminal: <br> `python outer_user_manager_divert.py --bind <IP_ADDRESS> --port <PORT_NUMBER> <MANAGEMENT_SERVER_IP_ADDRESS>:<MANAGEMENT_SERVER_PORT_NUMBER>`
+3. **Remote Access Server Setup:** start the remote access server by navigating to the outer_user_manager folder and executing the following command in the terminal: <br> `python outer_user_manager_divert.py --bind <IP_ADDRESS> --port <PORT_NUMBER> <AUTH_SERVER_IP_ADDRESS>:<AUTH_SERVER_PORT_NUMBER>`
 
-4. **Proxy Server Setup:** start the proxy server by navigating to the proxy folder and executing the following command in the terminal: <br> `python Proxy_Server.py --bind <IP_ADDRESS> <MANAGEMENT_SERVER_IP_ADDRESS>:<MANAGEMENT_SERVER_PORT_NUMBER>`
+4. **Proxy Server Setup:** start the proxy server by navigating to the proxy folder and executing the following command in the terminal: <br> `python Proxy_Server.py --bind <IP_ADDRESS> <AUTH_SERVER_IP_ADDRESS>:<AUTH_SERVER_PORT_NUMBER>`
 
-5. **File Server Setup:** start the file server by navigating to the file server folder and executing the following command in the terminal: <br> `python file_sever.py --bind <IP_ADDRESS> <MANAGEMENT_SERVER_IP_ADDRESS>:<MANAGEMENT_SERVER_PORT_NUMBER>`
+5. **File Server Setup:** start the file server by navigating to the file server folder and executing the following command in the terminal: <br> `python file_sever.py --bind <IP_ADDRESS> <AUTH_SERVER_IP_ADDRESS>:<AUTH_SERVER_PORT_NUMBER>`
 
 6. **Client configuration and setup:** configure the client by first navigating to the configuration file inside the client folder. inside the config file change the `main_auth_ip` field to the ip address of the management server along with the `main_auth_port`, `client_ip` and `interface` to their corresponding values (Note: the value of the `interface` field is the index of the NIC corresponding to the `client_ip` field).<br>After configurating the client, start the client by executing the following command in the terminal:<br>`python client_main.py`
 
