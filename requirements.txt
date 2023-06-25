@@ -1,0 +1,6 @@
+scapy
+customtkinter
+Pillow
+pydivert
+cryptography
+pyotp
