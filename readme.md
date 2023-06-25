@@ -33,5 +33,3 @@ To get started with the  VPN, follow the steps below:
 
 **Note:** This Enterprise VPN Project is developed solely for educational purposes and should not be used in a production environment or for commercial purposes. It serves as a learning tool to understand the concepts and implementation of a secure VPN solution. While efforts have been made to ensure the security and functionality of the project, it may not meet the stringent requirements necessary for real-world production or commercial use.
 
-
----
