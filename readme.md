@@ -2,8 +2,6 @@
 
 This project aims to develop a robust and secure enterprise-level VPN solution. The VPN provides a range of features and functionalities as described below.
 
----
-
 ## Features
 
 The Enterprise VPN project incorporates the following key features:
@@ -15,8 +13,6 @@ The Enterprise VPN project incorporates the following key features:
 - **Proxy and File Server:** The VPN project includes a proxy server that acts as an intermediary between clients and the internet. It helps enforce security policies and filter websites. Additionally, a file server is included that allows secure file sharing and collaboration among authorized users within the enterprise network.
 
 - **System Administration:** The VPN project provides administrative capabilities to manage the VPN infrastructure effectively. System administrators can monitor and control VPN connections, manage user access privileges and configure security settings.
-
----
 
 ## Deployment
 
